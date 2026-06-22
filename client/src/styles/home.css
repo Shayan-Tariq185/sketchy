@@ -1,0 +1,109 @@
+.home-hero {
+  width: 100%;
+  max-width: 560px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 26px;
+}
+
+.doodle-hero-canvas {
+  margin-bottom: 4px;
+}
+
+.home-headline {
+  font-size: clamp(30px, 6vw, 44px);
+  line-height: 1.08;
+  margin: 14px 0 12px;
+}
+
+.home-subline {
+  color: var(--ink-soft);
+  font-size: 16px;
+  max-width: 440px;
+  margin-bottom: 18px;
+}
+
+.home-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.home-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 8px;
+}
+
+.home-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+}
+
+.home-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 11px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink-faint);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.home-tab.active {
+  background: var(--paper-dim);
+  color: var(--ink);
+}
+
+.home-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 10px 18px 22px;
+}
+
+.input-code {
+  font-family: var(--font-mono);
+  letter-spacing: 0.18em;
+  font-weight: 700;
+  text-align: center;
+  font-size: 18px;
+  text-transform: uppercase;
+}
+
+.form-error {
+  background: #fff0ef;
+  border: 1.5px solid var(--coral);
+  color: var(--coral-dark);
+  font-size: 13px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  margin: 0;
+}
+
+.form-hint {
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  text-align: center;
+  margin: 0;
+}
+
+.home-footer {
+  margin-top: 28px;
+  font-size: 13px;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 480px) {
+  .home-headline {
+    font-size: 30px;
+  }
+}
