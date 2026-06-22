@@ -449,7 +449,7 @@ export function publicRoomState(room) {
     maxRounds: room.settings.maxRounds,
     drawerId: currentDrawerId(room),
     wordChoices: room.status === 'choosing' ? room.wordChoices : [],
-    maskedWord: room.currentWord ? maskedWord(room.currentWord, room.revealedLetterIndices) : '',
+    maskedWord: room.currentWord ? (room.status === 'round-end' ? room.currentWord : maskedWord(room.currentWord, room.revealedLetterIndices)) : '',
     wordLength: room.currentWord ? room.currentWord.replace(/\s/g, '').length : 0,
     timeLeft: timeLeftSeconds(room),
     drawTime: room.settings.drawTime,

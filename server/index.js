@@ -106,6 +106,20 @@ function finishRound(code, resultPayload) {
   clearRoomTimer(room);
   endRound(room);
 
+  // Add a system chat message revealing the word
+  const systemMsg = {
+    id: `sys-${Date.now()}`,
+    playerId: 'system',
+    playerName: 'System',
+    color: '#8b8b9c', // faint ink
+    text: `The word was: ${room.currentWord}`,
+    system: true,
+    createdAt: Date.now()
+  };
+  room.guesses.push(systemMsg);
+  room.guesses = room.guesses.slice(-50);
+  io.to(code).emit('chat:message', systemMsg);
+
   io.to(code).emit('round:end', {
     result: resultPayload,
     word: room.currentWord,
