@@ -25,6 +25,7 @@ import {
   registerGuess,
   removePlayer,
   resetForReplay,
+  revealHintLetter,
   startRound,
   timeLeftSeconds
 } from './roomManager.js';
@@ -74,6 +75,25 @@ function tickRoom(code) {
 
   const left = timeLeftSeconds(room);
   io.to(code).emit('round:tick', { timeLeft: left });
+
+  // Auto-reveal a hint letter once, at the 50% time mark
+  if (!room.hintGiven && room.roundEndsAt) {
+    const elapsed = Date.now() - (room.roundEndsAt - room.settings.drawTime * 1000);
+    const halfTime = room.settings.drawTime * 1000 * 0.5;
+    if (elapsed >= halfTime) {
+      const revealed = revealHintLetter(room);
+      if (revealed) {
+        // Send the updated masked word + hint flag to all guessers
+        const state = publicRoomState(room);
+        io.to(code).emit('hint:letter', {
+          maskedWord: state.maskedWord,
+          revealedCount: state.revealedCount
+        });
+        // Also update the full room state so the masked word refreshes for everyone
+        emitRoomState(code);
+      }
+    }
+  }
 
   if (left <= 0) {
     finishRound(code, { type: 'timeout', word: room.currentWord });
@@ -318,6 +338,8 @@ io.on('connection', (socket) => {
     const drawerId = currentDrawerId(room);
     if (player.id === drawerId) return; // drawer can't guess
     if (room.status !== 'drawing') return;
+    // Guard: already-correct players cannot keep guessing
+    if (room.correctGuessersThisRound.has(player.id)) return;
 
     const { entry, isCorrect, pointsAwarded, streakInfo } = registerGuess(room, player, text, drawerId);
 
@@ -326,6 +348,7 @@ io.on('connection', (socket) => {
         playerId: player.id,
         playerName: player.name,
         color: player.color,
+        animal: player.animal,
         pointsAwarded,
         streak: streakInfo?.streak || 1
       });
@@ -334,7 +357,7 @@ io.on('connection', (socket) => {
       if (allNonDrawersGuessedCorrectly(room, drawerId)) {
         finishRound(code, { type: 'all-correct', word: room.currentWord });
       }
-    } else {
+    } else if (entry) {
       // Heat hint goes only to the guesser, never reveals the word
       const heat = guessHeat(text, room.currentWord || '');
       io.to(code).emit('chat:message', entry);
@@ -353,6 +376,7 @@ io.on('connection', (socket) => {
       playerId: player.id,
       playerName: player.name,
       color: player.color,
+      animal: player.animal,
       text: text.trim().slice(0, 200),
       correct: false,
       system: false,

@@ -150,6 +150,7 @@
   background: var(--paper-dim);
 }
 
+/* Legacy avatar-dot kept for backward compat */
 .avatar-dot {
   width: 38px;
   height: 38px;
@@ -163,6 +164,90 @@
   font-size: 15px;
   color: var(--white);
   flex-shrink: 0;
+}
+
+/* ---- Animal avatar ---- */
+.animal-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 2px solid var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  flex-shrink: 0;
+  overflow: visible;
+  transition: transform 0.2s ease;
+}
+
+.animal-emoji {
+  font-size: 20px;
+  line-height: 1;
+  user-select: none;
+  display: block;
+}
+
+.avatar-overlay {
+  position: absolute;
+  top: -10px;
+  right: -10px;
+  font-size: 13px;
+  line-height: 1;
+  animation: overlay-pop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes overlay-pop {
+  from { transform: scale(0); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+/* Drawing state: pencil wiggle */
+.avatar-drawing {
+  animation: drawing-wiggle 0.55s ease-in-out infinite alternate;
+  border-color: var(--pencil-dark);
+  box-shadow: 0 0 0 3px rgba(255, 201, 60, 0.3);
+}
+
+@keyframes drawing-wiggle {
+  0%   { transform: rotate(-6deg) scale(1.05); }
+  100% { transform: rotate(6deg)  scale(1.05); }
+}
+
+/* Thinking state: gentle bob with thought bubble */
+.avatar-thinking {
+  animation: thinking-bob 1s ease-in-out infinite;
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px rgba(178, 107, 255, 0.25);
+}
+
+@keyframes thinking-bob {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-4px); }
+}
+
+/* Guessed correctly: subtle glow */
+.avatar-guessed {
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px rgba(61, 220, 151, 0.28);
+}
+
+/* Player row guessed state */
+.player-row.has-guessed {
+  opacity: 0.75;
+}
+
+/* Mini-tag variants */
+.mini-tag-thinking {
+  background: rgba(178, 107, 255, 0.14);
+  color: #7b3fcf;
+  border-color: var(--violet);
+}
+
+.mini-tag-guessed {
+  background: rgba(61, 220, 151, 0.15);
+  color: var(--mint-dark);
+  border-color: var(--mint);
 }
 
 .toast-stack {

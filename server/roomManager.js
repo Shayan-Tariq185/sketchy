@@ -23,6 +23,9 @@ const ROUND_DEFAULTS = {
 
 const AVATAR_PALETTE = ['#FF5D5D', '#3DDC97', '#FFC93C', '#4D6BFE', '#B26BFF', '#FF8FB1', '#33C9C9', '#FF9F4D'];
 
+// Cute animal emojis assigned per player slot
+const ANIMAL_AVATARS = ['🦊', '🐻', '🐧', '🐼', '🐸', '🐰', '🦁', '🦆', '🐨', '🦝', '🦉', '🐺'];
+
 function makeRoomCode() {
   // 5-char codes, uppercase letters + digits, vowel-light to avoid accidental words
   return nanoid(5).toUpperCase().replace(/[^A-Z0-9]/g, () => 'X');
@@ -61,7 +64,10 @@ export function createRoom(hostSocketId, hostName) {
     correctGuessersThisRound: new Set(),
     scores: new Map(), // playerId -> score
     streaks: new Map(), // playerId -> consecutive correct-guess streak
-    roundRecaps: [] // { word, drawerId, strokes, guessers } for replay after game
+    roundRecaps: [], // { word, drawerId, strokes, guessers } for replay after game
+    // Hint system
+    revealedLetterIndices: [], // letter positions revealed so far this round
+    hintGiven: false            // whether the auto-hint fired this round
   };
 
   addPlayer(room, hostSocketId, hostName, hostId, true);
@@ -75,12 +81,15 @@ export function getRoom(code) {
 
 export function addPlayer(room, socketId, name, forcedId, isHost = false) {
   const playerId = forcedId || nanoid(10);
-  const color = AVATAR_PALETTE[room.players.size % AVATAR_PALETTE.length];
+  const slotIndex = room.players.size;
+  const color = AVATAR_PALETTE[slotIndex % AVATAR_PALETTE.length];
+  const animal = ANIMAL_AVATARS[slotIndex % ANIMAL_AVATARS.length];
 
   const player = {
     id: playerId,
     name: name.slice(0, 18),
     color,
+    animal,
     isHost,
     connected: true,
     socketId
@@ -191,6 +200,9 @@ export function startRound(room) {
   room.correctGuessersThisRound = new Set();
   room.roundStartedAt = null;
   room.roundEndsAt = null;
+  // Reset hint state for new round
+  room.revealedLetterIndices = [];
+  room.hintGiven = false;
 
   if (room.settings.choiceMode) {
     room.status = 'choosing';
@@ -213,19 +225,68 @@ export function confirmWordChoice(room, word) {
   room.status = 'drawing';
   room.roundStartedAt = Date.now();
   room.roundEndsAt = Date.now() + room.settings.drawTime * 1000;
+  // Reset hints when word is locked in
+  room.revealedLetterIndices = [];
+  room.hintGiven = false;
 }
 
-export function maskedWord(word) {
+// Returns the word masked with underscores, respecting revealed letter positions.
+// Spaces in multi-word answers are kept as wide gaps.
+export function maskedWord(word, revealedIndices = []) {
   if (!word) return '';
-  return word
-    .split(' ')
-    .map((part) => part.split('').map(() => '_').join(' '))
-    .join('   ');
+  // Build a flat char list (letters only, ignoring spaces)
+  const chars = word.split('');
+  let letterIdx = 0;
+  return chars
+    .map((ch) => {
+      if (ch === ' ') return '   '; // wide gap for word separator
+      const reveal = revealedIndices.includes(letterIdx);
+      letterIdx++;
+      return reveal ? ch : '_';
+    })
+    .join(' ');
 }
 
 export function timeLeftSeconds(room) {
   if (!room.roundEndsAt) return room.settings.drawTime;
   return Math.max(0, Math.round((room.roundEndsAt - Date.now()) / 1000));
+}
+
+// ---------- Hint system ----------
+
+// Reveal one random non-first, non-space letter from the current word.
+// Returns the updated list of revealed indices, or null if nothing new to reveal.
+export function revealHintLetter(room) {
+  const word = room.currentWord;
+  if (!word) return null;
+
+  // Build eligible flat letter indices (skip index 0 — first letter always hidden until end)
+  const letters = word.split('');
+  const eligibleIndices = [];
+  let letterIdx = 0;
+  for (const ch of letters) {
+    if (ch !== ' ') {
+      if (letterIdx > 0 && !room.revealedLetterIndices.includes(letterIdx)) {
+        eligibleIndices.push(letterIdx);
+      }
+      letterIdx++;
+    }
+  }
+
+  if (eligibleIndices.length === 0) return null;
+
+  // Pick a random eligible index
+  const pick = eligibleIndices[Math.floor(Math.random() * eligibleIndices.length)];
+  room.revealedLetterIndices = [...room.revealedLetterIndices, pick];
+  room.hintGiven = true;
+  return room.revealedLetterIndices;
+}
+
+// ---------- Guess matching ----------
+
+// Normalise text for comparison: lowercase + collapse all whitespace
+function normaliseGuess(text) {
+  return text.trim().toLowerCase().replace(/\s+/g, '');
 }
 
 // Levenshtein-ish closeness score used for the "heat" hint feature, without
@@ -234,7 +295,7 @@ export function guessHeat(guess, word) {
   const a = guess.trim().toLowerCase();
   const b = word.trim().toLowerCase();
   if (!a) return 0;
-  if (a === b) return 100;
+  if (normaliseGuess(a) === normaliseGuess(b)) return 100;
 
   const dist = levenshtein(a, b);
   const maxLen = Math.max(a.length, b.length);
@@ -264,14 +325,21 @@ function levenshtein(a, b) {
 
 export function registerGuess(room, player, text, drawerId) {
   const word = room.currentWord;
-  const isCorrect = text.trim().toLowerCase() === (word || '').trim().toLowerCase();
+  // FIX: normalise spaces so "sword fish" matches "swordfish", and case-insensitive
+  const isCorrect = normaliseGuess(text) === normaliseGuess(word || '');
   const alreadyCorrect = room.correctGuessersThisRound.has(player.id);
+
+  // FIX: block already-correct players from polluting the guess feed
+  if (alreadyCorrect) {
+    return { entry: null, isCorrect: false, pointsAwarded: 0, streakInfo: null };
+  }
 
   const entry = {
     id: nanoid(8),
     playerId: player.id,
     playerName: player.name,
     color: player.color,
+    animal: player.animal,
     text,
     correct: isCorrect,
     system: false,
@@ -281,38 +349,40 @@ export function registerGuess(room, player, text, drawerId) {
   let pointsAwarded = 0;
   let streakInfo = null;
 
-  if (isCorrect && !alreadyCorrect) {
+  if (isCorrect) {
     room.correctGuessersThisRound.add(player.id);
 
+    // FIX: cap elapsedRatio to [0, 1] — server clock drift could push it above 1
     const elapsedRatio = room.roundEndsAt
-      ? Math.max(0, (room.roundEndsAt - Date.now()) / (room.settings.drawTime * 1000))
+      ? Math.min(1, Math.max(0, (room.roundEndsAt - Date.now()) / (room.settings.drawTime * 1000)))
       : 0.5;
-    // faster guesses = more points. Base 50, up to +150 for instant guesses.
+    // Faster guesses = more points. Base 50, speed bonus up to +150.
     const speedBonus = Math.round(150 * elapsedRatio);
     const basePoints = 50 + speedBonus;
 
     const currentStreak = (room.streaks.get(player.id) || 0) + 1;
     room.streaks.set(player.id, currentStreak);
-    const streakMultiplier = 1 + Math.min(currentStreak - 1, 4) * 0.15; // up to +60% at 5 streak
+    const streakMultiplier = 1 + Math.min(currentStreak - 1, 4) * 0.15; // up to +60% at 5-streak
     pointsAwarded = Math.round(basePoints * streakMultiplier);
 
     room.scores.set(player.id, (room.scores.get(player.id) || 0) + pointsAwarded);
 
-    // drawer gets a flat reward per correct guesser too
-    if (drawerId) {
+    // Drawer gets a flat reward per correct guesser
+    if (drawerId && drawerId !== player.id) {
       room.scores.set(drawerId, (room.scores.get(drawerId) || 0) + 25);
     }
 
     streakInfo = { streak: currentStreak, pointsAwarded, multiplier: streakMultiplier };
-    entry.text = text; // keep guess visible as correct, client will redact others' view if needed
-  } else if (!isCorrect) {
+    entry.text = text;
+  } else {
+    // Wrong guess resets streak
     room.streaks.set(player.id, 0);
   }
 
   room.guesses.push(entry);
   room.guesses = room.guesses.slice(-50);
 
-  return { entry, isCorrect: isCorrect && !alreadyCorrect, pointsAwarded, streakInfo };
+  return { entry, isCorrect, pointsAwarded, streakInfo };
 }
 
 export function allNonDrawersGuessedCorrectly(room, drawerId) {
@@ -343,6 +413,7 @@ export function leaderboard(room) {
       id: p.id,
       name: p.name,
       color: p.color,
+      animal: p.animal,
       connected: p.connected,
       isHost: p.isHost,
       score: room.scores.get(p.id) || 0,
@@ -362,6 +433,8 @@ export function resetForReplay(room) {
   room.guesses = [];
   room.correctGuessersThisRound = new Set();
   room.roundRecaps = [];
+  room.revealedLetterIndices = [];
+  room.hintGiven = false;
   for (const id of room.scores.keys()) room.scores.set(id, 0);
   for (const id of room.streaks.keys()) room.streaks.set(id, 0);
 }
@@ -376,13 +449,15 @@ export function publicRoomState(room) {
     maxRounds: room.settings.maxRounds,
     drawerId: currentDrawerId(room),
     wordChoices: room.status === 'choosing' ? room.wordChoices : [],
-    maskedWord: room.currentWord ? maskedWord(room.currentWord) : '',
+    maskedWord: room.currentWord ? maskedWord(room.currentWord, room.revealedLetterIndices) : '',
     wordLength: room.currentWord ? room.currentWord.replace(/\s/g, '').length : 0,
     timeLeft: timeLeftSeconds(room),
     drawTime: room.settings.drawTime,
     players: leaderboard(room),
     guesses: room.guesses,
-    correctGuessers: [...room.correctGuessersThisRound]
+    correctGuessers: [...room.correctGuessersThisRound],
+    hintGiven: room.hintGiven,
+    revealedCount: room.revealedLetterIndices.length
   };
 }
 

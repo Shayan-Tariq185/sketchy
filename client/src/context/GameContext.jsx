@@ -18,7 +18,9 @@ const initialRoomState = {
   drawTime: 80,
   players: [],
   guesses: [],
-  correctGuessers: []
+  correctGuessers: [],
+  hintGiven: false,
+  revealedCount: 0
 };
 
 export function GameProvider({ children }) {
@@ -37,11 +39,42 @@ export function GameProvider({ children }) {
   const [view, setView] = useState('home'); // home | lobby | game | results
 
   const strokeListeners = useRef(new Set());
+  // Smooth client-side timer state
+  const clientTimerRef = useRef(null);
+  const serverTimeLeftRef = useRef(0);
 
   const pushToast = useCallback((text) => {
     const id = `${Date.now()}-${Math.random()}`;
     setToasts((prev) => [...prev, { id, text }]);
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3200);
+  }, []);
+
+  // ---------- Smooth client-side timer ----------
+  // Runs a 100ms interval that interpolates timeLeft locally, syncing
+  // to the authoritative server value whenever round:tick fires.
+  const startClientTimer = useCallback((initialSeconds) => {
+    if (clientTimerRef.current) clearInterval(clientTimerRef.current);
+    serverTimeLeftRef.current = initialSeconds;
+
+    // Update the room timeLeft locally at 100ms resolution
+    const startedAt = Date.now();
+    const startSeconds = initialSeconds;
+
+    clientTimerRef.current = setInterval(() => {
+      const elapsed = (Date.now() - startedAt) / 1000;
+      const computed = Math.max(0, startSeconds - elapsed);
+      setRoom((prev) => {
+        if (prev.status !== 'drawing') return prev;
+        return { ...prev, timeLeft: computed };
+      });
+    }, 100);
+  }, []);
+
+  const stopClientTimer = useCallback(() => {
+    if (clientTimerRef.current) {
+      clearInterval(clientTimerRef.current);
+      clientTimerRef.current = null;
+    }
   }, []);
 
   useEffect(() => {
@@ -59,6 +92,10 @@ export function GameProvider({ children }) {
             setPlayerName(session.name || '');
             applyRoomState(res.state);
             setView(res.state.status === 'lobby' ? 'lobby' : res.state.status === 'finished' ? 'results' : 'game');
+            // Resume smooth timer if rejoining mid-drawing
+            if (res.state.status === 'drawing' && res.state.timeLeft > 0) {
+              startClientTimer(res.state.timeLeft);
+            }
           } else {
             clearSession();
           }
@@ -68,6 +105,7 @@ export function GameProvider({ children }) {
 
     function onDisconnect() {
       setConnected(false);
+      stopClientTimer();
     }
 
     function applyRoomState(state) {
@@ -76,6 +114,19 @@ export function GameProvider({ children }) {
 
     function onRoomState(state) {
       applyRoomState(state);
+      // If the status just became drawing, start or reset the client-side smooth timer
+      if (state.status === 'drawing' && state.timeLeft > 0) {
+        startClientTimer(state.timeLeft);
+      } else if (state.status !== 'drawing') {
+        stopClientTimer();
+      }
+    }
+
+    // Server's authoritative tick — sync the local timer reference
+    function onRoundTick({ timeLeft }) {
+      serverTimeLeftRef.current = timeLeft;
+      // Restart the smooth timer anchored to this authoritative value
+      startClientTimer(timeLeft);
     }
 
     function onPlayerJoined({ name }) {
@@ -87,8 +138,6 @@ export function GameProvider({ children }) {
     }
 
     function onWordChoices() {
-      // handled by Game screen directly via a dedicated listener too,
-      // but we clear any stale secret word here.
       setSecretWord('');
     }
 
@@ -100,21 +149,24 @@ export function GameProvider({ children }) {
       setRoundEndInfo(payload);
       setSecretWord('');
       setHeat(null);
+      stopClientTimer();
     }
 
     function onGameFinished(payload) {
       setGameResult(payload);
       setView('results');
+      stopClientTimer();
     }
 
     function onGamePaused({ reason }) {
       pushToast(reason);
       setView('lobby');
+      stopClientTimer();
     }
 
     function onChatHeat({ heat: h }) {
       setHeat(h);
-      setTimeout(() => setHeat((curr) => (curr === h ? null : curr)), 1800);
+      setTimeout(() => setHeat((curr) => (curr === h ? null : curr)), 3500);
     }
 
     function onChatCorrect(payload) {
@@ -127,11 +179,28 @@ export function GameProvider({ children }) {
       pushToast("You've been removed from the room.");
       setView('home');
       setRoom(initialRoomState);
+      stopClientTimer();
+    }
+
+    // FIX: listen to chat:message events (incorrect guesses + drawer free chat)
+    // and append them directly to room.guesses so the feed updates in real-time.
+    function onChatMessage(msg) {
+      setRoom((prev) => ({
+        ...prev,
+        guesses: [...(prev.guesses || []), msg].slice(-50)
+      }));
+    }
+
+    // Hint letter reveal — update the masked word without a full room:state round-trip
+    function onHintLetter({ maskedWord: mw, revealedCount }) {
+      setRoom((prev) => ({ ...prev, maskedWord: mw, hintGiven: true, revealedCount }));
+      pushToast('💡 A letter has been revealed!');
     }
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('room:state', onRoomState);
+    socket.on('round:tick', onRoundTick);
     socket.on('player:joined', onPlayerJoined);
     socket.on('player:left', onPlayerLeft);
     socket.on('word:choices', onWordChoices);
@@ -142,11 +211,14 @@ export function GameProvider({ children }) {
     socket.on('chat:heat', onChatHeat);
     socket.on('chat:correct', onChatCorrect);
     socket.on('player:kicked', onPlayerKicked);
+    socket.on('chat:message', onChatMessage);
+    socket.on('hint:letter', onHintLetter);
 
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('room:state', onRoomState);
+      socket.off('round:tick', onRoundTick);
       socket.off('player:joined', onPlayerJoined);
       socket.off('player:left', onPlayerLeft);
       socket.off('word:choices', onWordChoices);
@@ -157,8 +229,11 @@ export function GameProvider({ children }) {
       socket.off('chat:heat', onChatHeat);
       socket.off('chat:correct', onChatCorrect);
       socket.off('player:kicked', onPlayerKicked);
+      socket.off('chat:message', onChatMessage);
+      socket.off('hint:letter', onHintLetter);
+      stopClientTimer();
     };
-  }, [pushToast]);
+  }, [pushToast, startClientTimer, stopClientTimer]);
 
   const createRoom = useCallback((name) => {
     return new Promise((resolve) => {
@@ -203,7 +278,8 @@ export function GameProvider({ children }) {
     setView('home');
     setGameResult(null);
     setRoundEndInfo(null);
-  }, [room.code]);
+    stopClientTimer();
+  }, [room.code, stopClientTimer]);
 
   const updateSettings = useCallback(
     (settings) => {
