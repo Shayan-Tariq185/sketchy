@@ -17,6 +17,7 @@ import {
   getPlayerBySocket,
   getRoom,
   guessHeat,
+  isAtCapacity,
   isRoomEmpty,
   markDisconnected,
   publicRoomState,
@@ -153,8 +154,36 @@ function kickOffDrawing(code) {
   room.timer = setInterval(() => tickRoom(code), 1000);
 }
 
+const lastRoomCreateByIp = new Map();
+const ROOM_CREATE_COOLDOWN_MS = 8000;
+
+setInterval(() => {
+  const cutoff = Date.now() - ROOM_CREATE_COOLDOWN_MS * 4;
+  for (const [ip, ts] of lastRoomCreateByIp.entries()) {
+    if (ts < cutoff) lastRoomCreateByIp.delete(ip);
+  }
+}, 10 * 60 * 1000);
+
+function getClientIp(socket) {
+  const forwarded = socket.handshake.headers['x-forwarded-for'];
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return socket.handshake.address;
+}
+
 io.on('connection', (socket) => {
   socket.on('room:create', ({ name }, callback) => {
+    const ip = getClientIp(socket);
+    const lastCreate = lastRoomCreateByIp.get(ip) || 0;
+    if (Date.now() - lastCreate < ROOM_CREATE_COOLDOWN_MS) {
+      callback?.({ ok: false, error: 'Please wait a few seconds before creating another room.' });
+      return;
+    }
+    if (isAtCapacity()) {
+      callback?.({ ok: false, error: 'Sketchy is at capacity right now — please try again in a few minutes.' });
+      return;
+    }
+
+    lastRoomCreateByIp.set(ip, Date.now());
     const cleanName = (name || 'Player').trim().slice(0, 18) || 'Player';
     const room = createRoom(socket.id, cleanName);
     socket.join(room.code);

@@ -4,6 +4,14 @@ import { pickWord, pickWordChoices } from './wordBank.js';
 // In-memory room store. Fine for a self-hosted / small-scale party game —
 // no database needed. Rooms are garbage collected when empty for a while.
 const rooms = new Map();
+// Safety cap: prevents unbounded memory growth if this gets shared widely.
+// Each room is small in memory, but this keeps things predictable on a
+// free-tier instance with limited RAM.
+const MAX_ACTIVE_ROOMS = 150;
+
+export function isAtCapacity() {
+  return rooms.size >= MAX_ACTIVE_ROOMS;
+}
 
 const ROUND_DEFAULTS = {
   maxRounds: 6,
