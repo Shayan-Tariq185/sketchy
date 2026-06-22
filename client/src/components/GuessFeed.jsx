@@ -78,7 +78,7 @@ export default function GuessFeed({ isDrawer, canGuess }) {
           <p className="empty-feed">{isDrawer ? 'Chat will show up here.' : 'No guesses yet — be the first!'}</p>
         ) : (
           room.guesses.map((g) => {
-            const guessedRight = room.correctGuessers?.includes(g.playerId);
+            const guessedRight = g.correct;
             return (
               <div
                 key={g.id}
