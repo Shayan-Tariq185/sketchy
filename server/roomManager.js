@@ -356,23 +356,30 @@ export function registerGuess(room, player, text, drawerId) {
     const elapsedRatio = room.roundEndsAt
       ? Math.min(1, Math.max(0, (room.roundEndsAt - Date.now()) / (room.settings.drawTime * 1000)))
       : 0.5;
-    // Faster guesses = more points. Base 50, speed bonus up to +150.
-    const speedBonus = Math.round(150 * elapsedRatio);
-    const basePoints = 50 + speedBonus;
+    
+    // Standard scoring: 50 to 500 points based on speed
+    const speedBonus = Math.round(450 * elapsedRatio);
+    pointsAwarded = 50 + speedBonus;
 
+    // First person to guess gets a 50 point bonus
+    if (room.correctGuessersThisRound.size === 1) {
+      pointsAwarded += 50;
+    }
+
+    // Keep streak for UI/visuals, but don't multiply points (keeps game balanced)
     const currentStreak = (room.streaks.get(player.id) || 0) + 1;
     room.streaks.set(player.id, currentStreak);
-    const streakMultiplier = 1 + Math.min(currentStreak - 1, 4) * 0.15; // up to +60% at 5-streak
-    pointsAwarded = Math.round(basePoints * streakMultiplier);
 
     room.scores.set(player.id, (room.scores.get(player.id) || 0) + pointsAwarded);
 
-    // Drawer gets a flat reward per correct guesser
+    // Standard drawer logic: Drawer gets 50% of the guesser's points
+    // This rewards the drawer for drawing quickly and clearly!
     if (drawerId && drawerId !== player.id) {
-      room.scores.set(drawerId, (room.scores.get(drawerId) || 0) + 25);
+      const drawerShare = Math.round(pointsAwarded / 2);
+      room.scores.set(drawerId, (room.scores.get(drawerId) || 0) + drawerShare);
     }
 
-    streakInfo = { streak: currentStreak, pointsAwarded, multiplier: streakMultiplier };
+    streakInfo = { streak: currentStreak, pointsAwarded, multiplier: 1 };
     entry.text = text;
   } else {
     // Wrong guess resets streak
