@@ -105,7 +105,7 @@ function finishRound(code, resultPayload) {
   const room = getRoom(code);
   if (!room) return;
   clearRoomTimer(room);
-  
+
   // Calculate prediction bonus before endRound() resets statuses
   let predictionInfo = null;
   if (room.drawerPrediction !== null) {

@@ -362,7 +362,7 @@ export function registerGuess(room, player, text, drawerId) {
     const elapsedRatio = room.roundEndsAt
       ? Math.min(1, Math.max(0, (room.roundEndsAt - Date.now()) / (room.settings.drawTime * 1000)))
       : 0.5;
-    
+
     // Standard scoring: 50 to 500 points based on speed
     const speedBonus = Math.round(450 * elapsedRatio);
     pointsAwarded = 50 + speedBonus;
