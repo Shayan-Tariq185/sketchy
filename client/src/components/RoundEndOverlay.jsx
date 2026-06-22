@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Play, RotateCcw, Trophy } from 'lucide-react';
+import { Play, RotateCcw, Trophy, Target } from 'lucide-react';
 
 function ReplayCanvas({ strokes }) {
   const canvasRef = useRef(null);
@@ -100,6 +100,26 @@ export default function RoundEndOverlay({ info, onDone }) {
           <h2 className="round-end-word">
             The word was <span className="pencil-underline">{word}</span>
           </h2>
+
+          {result?.predictionInfo ? (
+            <div className="prediction-banner" style={{
+              background: result.predictionInfo.hit ? 'var(--mint)' : 'var(--paper-dim)',
+              color: result.predictionInfo.hit ? 'var(--ink)' : 'var(--ink-faint)',
+              padding: '8px 14px',
+              borderRadius: '8px',
+              fontSize: '13.5px',
+              fontWeight: 600,
+              marginBottom: '16px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}>
+              <Target size={14} />
+              {result.predictionInfo.hit 
+                ? `Drawer predicted ${result.predictionInfo.predicted} — Nailed it! +50 bonus` 
+                : `Drawer predicted ${result.predictionInfo.predicted}, actual was ${result.predictionInfo.actual} — No bonus`}
+            </div>
+          ) : null}
 
           <ReplayCanvas strokes={strokes} key={JSON.stringify(strokes).length} />
 

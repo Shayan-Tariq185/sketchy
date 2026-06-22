@@ -26,6 +26,7 @@ import {
   removePlayer,
   resetForReplay,
   revealHintLetter,
+  startDrawingPhase,
   startRound,
   timeLeftSeconds
 } from './roomManager.js';
@@ -104,7 +105,25 @@ function finishRound(code, resultPayload) {
   const room = getRoom(code);
   if (!room) return;
   clearRoomTimer(room);
+  
+  // Calculate prediction bonus before endRound() resets statuses
+  let predictionInfo = null;
+  if (room.drawerPrediction !== null) {
+    const actualCorrect = room.correctGuessersThisRound.size;
+    const hit = room.drawerPrediction === actualCorrect;
+    let bonus = 0;
+    if (hit) {
+      bonus = 50;
+      const drawerId = currentDrawerId(room);
+      if (drawerId) {
+        room.scores.set(drawerId, (room.scores.get(drawerId) || 0) + bonus);
+      }
+    }
+    predictionInfo = { predicted: room.drawerPrediction, actual: actualCorrect, hit, bonus };
+  }
+
   endRound(room);
+  resultPayload.predictionInfo = predictionInfo;
 
   // Add a system chat message revealing the word
   const systemMsg = {
@@ -169,14 +188,14 @@ function beginRound(code) {
       if (!r || r.status !== 'choosing') return;
       const auto = r.wordChoices[0];
       confirmWordChoice(r, auto);
-      kickOffDrawing(code);
+      kickOffPrediction(code);
     }, 12000);
   } else {
-    kickOffDrawing(code);
+    kickOffPrediction(code);
   }
 }
 
-function kickOffDrawing(code) {
+function kickOffPrediction(code) {
   const room = getRoom(code);
   if (!room) return;
   clearRoomTimer(room);
@@ -184,6 +203,22 @@ function kickOffDrawing(code) {
   emitRoomState(code);
   const drawerId = currentDrawerId(room);
   emitToPlayer(room, drawerId, 'word:reveal', { word: room.currentWord });
+
+  // 6 second auto-skip for prediction
+  room.timer = setTimeout(() => {
+    const r = getRoom(code);
+    if (!r || r.status !== 'predicting') return;
+    kickOffDrawing(code);
+  }, 6000);
+}
+
+function kickOffDrawing(code) {
+  const room = getRoom(code);
+  if (!room) return;
+  clearRoomTimer(room);
+
+  startDrawingPhase(room);
+  emitRoomState(code);
 
   room.timer = setInterval(() => tickRoom(code), 1000);
 }
@@ -303,11 +338,17 @@ io.on('connection', (socket) => {
     const room = getRoom(code);
     if (!room || room.status !== 'choosing') return;
     const player = getPlayerBySocket(room, socket.id);
-    const drawerId = currentDrawerId(room);
-    if (!player || player.id !== drawerId) return;
-    if (!room.wordChoices.includes(word)) return;
-
+    if (!player || player.id !== currentDrawerId(room)) return;
     confirmWordChoice(room, word);
+    kickOffPrediction(code);
+  });
+
+  socket.on('word:predict', ({ code, prediction }) => {
+    const room = getRoom(code);
+    if (!room || room.status !== 'predicting') return;
+    const player = getPlayerBySocket(room, socket.id);
+    if (!player || player.id !== currentDrawerId(room)) return;
+    room.drawerPrediction = prediction;
     kickOffDrawing(code);
   });
 

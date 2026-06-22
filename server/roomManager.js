@@ -67,7 +67,9 @@ export function createRoom(hostSocketId, hostName) {
     roundRecaps: [], // { word, drawerId, strokes, guessers } for replay after game
     // Hint system
     revealedLetterIndices: [], // letter positions revealed so far this round
-    hintGiven: false            // whether the auto-hint fired this round
+    hintGiven: false,           // whether the auto-hint fired this round
+    // Prediction Bonus
+    drawerPrediction: null
   };
 
   addPlayer(room, hostSocketId, hostName, hostId, true);
@@ -203,17 +205,16 @@ export function startRound(room) {
   // Reset hint state for new round
   room.revealedLetterIndices = [];
   room.hintGiven = false;
+  room.drawerPrediction = null;
 
   if (room.settings.choiceMode) {
     room.status = 'choosing';
     room.currentWord = null;
     room.wordChoices = pickWordChoices(room.settings.wordPack, room.settings.difficulty, room.usedWords, 3);
   } else {
-    room.status = 'drawing';
+    room.status = 'predicting';
     room.currentWord = pickWord(room.settings.wordPack, room.settings.difficulty, room.usedWords);
     room.usedWords.push(room.currentWord);
-    room.roundStartedAt = Date.now();
-    room.roundEndsAt = Date.now() + room.settings.drawTime * 1000;
   }
 
   return drawerId;
@@ -222,12 +223,17 @@ export function startRound(room) {
 export function confirmWordChoice(room, word) {
   room.currentWord = word;
   room.usedWords.push(word);
-  room.status = 'drawing';
-  room.roundStartedAt = Date.now();
-  room.roundEndsAt = Date.now() + room.settings.drawTime * 1000;
+  room.status = 'predicting';
   // Reset hints when word is locked in
   room.revealedLetterIndices = [];
   room.hintGiven = false;
+  room.drawerPrediction = null;
+}
+
+export function startDrawingPhase(room) {
+  room.status = 'drawing';
+  room.roundStartedAt = Date.now();
+  room.roundEndsAt = Date.now() + room.settings.drawTime * 1000;
 }
 
 // Returns the word masked with underscores, respecting revealed letter positions.
@@ -435,6 +441,7 @@ export function resetForReplay(room) {
   room.drawerIndex = -1;
   room.currentWord = null;
   room.wordChoices = [];
+  room.drawerPrediction = null;
   room.usedWords = [];
   room.strokes = [];
   room.guesses = [];

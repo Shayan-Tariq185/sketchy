@@ -337,8 +337,15 @@ export function GameProvider({ children }) {
     [room.code]
   );
 
+  const sendPrediction = useCallback(
+    (prediction) => {
+      socket.emit('word:predict', { code: room.code, prediction });
+    },
+    [room.code]
+  );
+
   useEffect(() => {
-    if (room.status === 'choosing' || room.status === 'drawing') {
+    if (room.status === 'choosing' || room.status === 'predicting' || room.status === 'drawing') {
       setView('game');
     }
   }, [room.status]);
@@ -368,6 +375,7 @@ export function GameProvider({ children }) {
     updateSettings,
     startGame,
     chooseWord,
+    sendPrediction,
     sendStroke,
     clearCanvas,
     undoStroke,

@@ -5,6 +5,7 @@ import RoundSidebar from '../components/RoundSidebar';
 import DrawingCanvas from '../components/DrawingCanvas';
 import GuessFeed from '../components/GuessFeed';
 import WordChoiceOverlay from '../components/WordChoiceOverlay';
+import PredictionOverlay from '../components/PredictionOverlay';
 import RoundEndOverlay from '../components/RoundEndOverlay';
 import CorrectGuessFlash from '../components/CorrectGuessFlash';
 
@@ -46,10 +47,14 @@ export default function GameScreen() {
         <WordChoiceOverlay choices={room.wordChoices} onChoose={chooseWord} />
       ) : null}
 
-      {room.status === 'choosing' && !isDrawer ? (
+      {room.status === 'predicting' && isDrawer ? (
+        <PredictionOverlay />
+      ) : null}
+
+      {(room.status === 'choosing' || room.status === 'predicting') && !isDrawer ? (
         <div className="overlay-scrim">
           <div className="paper-card waiting-for-word-card">
-            <p>{room.players.find((p) => p.id === room.drawerId)?.name || 'The drawer'} is picking a word…</p>
+            <p>{room.players.find((p) => p.id === room.drawerId)?.name || 'The drawer'} is getting ready…</p>
           </div>
         </div>
       ) : null}
