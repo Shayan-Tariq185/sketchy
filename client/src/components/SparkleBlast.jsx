@@ -8,16 +8,24 @@ function randomBetween(min, max) {
   return min + Math.random() * (max - min);
 }
 
-export default function SparkleBlast({ active }) {
+export default function SparkleBlast({
+  burstKey,
+  active,
+  particleCount = 48,
+  cleanupMs = 2400,
+  fallDurationMin = 0.8,
+  fallDurationMax = 1.8
+}) {
   const containerRef = useRef(null);
+  const trigger = burstKey ?? (active ? 'on' : null);
 
   useEffect(() => {
-    if (!active || !containerRef.current) return;
+    if (!trigger || !containerRef.current) return;
     const el = containerRef.current;
     // Clear previous particles
     el.innerHTML = '';
 
-    const count = 48;
+    const count = particleCount;
     for (let i = 0; i < count; i++) {
       const particle = document.createElement('span');
       particle.className = 'sparkle-particle';
@@ -25,11 +33,11 @@ export default function SparkleBlast({ active }) {
 
       const startX = randomBetween(10, 90); // vw %
       const endX = startX + randomBetween(-20, 20);
-      const duration = randomBetween(0.8, 1.8);
+      const duration = randomBetween(fallDurationMin, fallDurationMax);
       const delay = randomBetween(0, 0.4);
       const size = randomBetween(14, 28);
       const color = COLORS[Math.floor(Math.random() * COLORS.length)];
-      const endY = randomBetween(40, 90); // vh %
+      const endY = randomBetween(55, 105); // vh %
 
       particle.style.cssText = `
         left: ${startX}vw;
@@ -47,9 +55,9 @@ export default function SparkleBlast({ active }) {
     // Clean up after longest animation
     const timer = setTimeout(() => {
       if (el) el.innerHTML = '';
-    }, 2400);
+    }, cleanupMs);
     return () => clearTimeout(timer);
-  }, [active]);
+  }, [trigger, particleCount, cleanupMs, fallDurationMin, fallDurationMax]);
 
   return <div className="sparkle-container" ref={containerRef} aria-hidden="true" />;
 }

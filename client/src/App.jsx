@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useGame } from './context/GameContext';
 import HomeScreen from './screens/HomeScreen';
 import LobbyScreen from './screens/LobbyScreen';
@@ -5,6 +6,7 @@ import GameScreen from './screens/GameScreen';
 import ResultsScreen from './screens/ResultsScreen';
 import ToastStack from './components/ToastStack';
 import ConnectionBanner from './components/ConnectionBanner';
+import { unlockAudio } from './utils/sounds';
 
 // Invisible SVG filter used by every `.wobble-card` element to give panels
 // a subtly hand-drawn, displaced border instead of a perfect machine edge.
@@ -23,6 +25,16 @@ function GlobalSvgDefs() {
 
 export default function App() {
   const { view, connecting, connected } = useGame();
+
+  useEffect(() => {
+    const unlock = () => unlockAudio();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
 
   return (
     <div className="app-root">

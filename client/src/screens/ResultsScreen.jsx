@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Crown, Home, RotateCcw, Trophy } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import RoundEndOverlay from '../components/RoundEndOverlay';
+import SparkleBlast from '../components/SparkleBlast';
+import { playVictoryFanfare } from '../utils/sounds';
 
 // Badge emoji mapping for visual flair
 const BADGE_EMOJI = {
@@ -42,12 +44,27 @@ export default function ResultsScreen() {
   const sorted = [...leaderboard].sort((a, b) => b.score - a.score);
   const winner = sorted[0];
 
+  useEffect(() => {
+    if (winner) {
+      playVictoryFanfare();
+    }
+  }, [winner?.id]);
+
   // Build a lookup map from leaderboard player id → player object
   const playerById = Object.fromEntries(leaderboard.map((p) => [p.id, p]));
   const playerBadges = gameResult?.playerBadges || {};
 
   return (
     <main className="screen screen-narrow">
+      {winner ? (
+        <SparkleBlast
+          burstKey={`match-${winner.id}`}
+          particleCount={80}
+          cleanupMs={5200}
+          fallDurationMin={2.2}
+          fallDurationMax={4.2}
+        />
+      ) : null}
       <div className="results-trophy">
         <Trophy size={40} color="#FFC93C" />
       </div>

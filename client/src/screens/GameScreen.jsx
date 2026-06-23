@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useGame } from '../context/GameContext';
 import { useCanvasDrawing } from '../hooks/useCanvasDrawing';
+import { useTimerSounds } from '../hooks/useTimerSounds';
 import RoundSidebar from '../components/RoundSidebar';
 import DrawingCanvas from '../components/DrawingCanvas';
 import GuessFeed from '../components/GuessFeed';
@@ -17,6 +18,8 @@ export default function GameScreen() {
   const roundKeyRef = useRef(null);
 
   const canvasState = useCanvasDrawing({ roomCode: room.code, canDraw });
+
+  useTimerSounds(room.timeLeft, room.status === 'drawing');
 
   useEffect(() => {
     // a fresh round (new round number OR new drawer for choice-mode entry)

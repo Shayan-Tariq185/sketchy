@@ -1,17 +1,19 @@
+import { memo } from 'react';
 import { Flame, Zap } from 'lucide-react';
 import SparkleBlast from './SparkleBlast';
 
-export default function CorrectGuessFlash({ payload }) {
+function CorrectGuessFlash({ payload }) {
   if (!payload) return null;
-  const { playerName, color, pointsAwarded, streak, animal } = payload;
+  const { playerName, color, pointsAwarded, streak, animal, guessId, playerId } = payload;
+  const flashKey = guessId || `${playerId}-${pointsAwarded}`;
 
   return (
     <>
       {/* Confetti burst from top */}
-      <SparkleBlast active={!!payload} />
+      <SparkleBlast burstKey={flashKey} />
 
-      {/* Bottom banner */}
-      <div className="correct-flash" key={`${playerName}-${pointsAwarded}-${Date.now()}`}>
+      {/* Bottom banner — stable key so timer re-renders don't restart the animation */}
+      <div className="correct-flash" key={flashKey}>
         <span className="flash-animal">{animal || '🎉'}</span>
         <Zap size={14} />
         <span style={{ color }}>{playerName}</span>
@@ -26,3 +28,5 @@ export default function CorrectGuessFlash({ payload }) {
     </>
   );
 }
+
+export default memo(CorrectGuessFlash);

@@ -419,6 +419,7 @@ io.on('connection', (socket) => {
 
     if (isCorrect) {
       io.to(code).emit('chat:correct', {
+        guessId: entry.id,
         playerId: player.id,
         playerName: player.name,
         color: player.color,
