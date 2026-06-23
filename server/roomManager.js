@@ -5,8 +5,6 @@ import { pickWord, pickWordChoices } from './wordBank.js';
 // no database needed. Rooms are garbage collected when empty for a while.
 const rooms = new Map();
 // Safety cap: prevents unbounded memory growth if this gets shared widely.
-// Each room is small in memory, but this keeps things predictable on a
-// free-tier instance with limited RAM.
 const MAX_ACTIVE_ROOMS = 150;
 
 export function isAtCapacity() {
@@ -14,20 +12,17 @@ export function isAtCapacity() {
 }
 
 const ROUND_DEFAULTS = {
-  maxRounds: 6,
+  maxRounds: 3,       // number of FULL rounds (each player draws once per round)
   drawTime: 80,
   wordPack: 'Classic',
   difficulty: 'Medium',
-  choiceMode: true // drawer picks from 3 word choices instead of a forced word
+  choiceMode: true
 };
 
 const AVATAR_PALETTE = ['#FF5D5D', '#3DDC97', '#FFC93C', '#4D6BFE', '#B26BFF', '#FF8FB1', '#33C9C9', '#FF9F4D'];
-
-// Cute animal emojis assigned per player slot
 const ANIMAL_AVATARS = ['🦊', '🐻', '🐧', '🐼', '🐸', '🐰', '🦁', '🦆', '🐨', '🦝', '🦉', '🐺'];
 
 function makeRoomCode() {
-  // 5-char codes, uppercase letters + digits, vowel-light to avoid accidental words
   return nanoid(5).toUpperCase().replace(/[^A-Z0-9]/g, () => 'X');
 }
 
@@ -35,6 +30,21 @@ function uniqueRoomCode() {
   let code = makeRoomCode();
   while (rooms.has(code)) code = makeRoomCode();
   return code;
+}
+
+// Initialise a blank per-player stats entry
+function blankStats() {
+  return {
+    totalStrokes: 0,        // strokes drawn (only when this player is drawer)
+    colorSwitches: 0,       // number of mid-drawing color changes (drawer only)
+    fastestGuessMs: null,   // best guess time in ms (null = never guessed correctly)
+    thinkTimeSamples: [],   // array of ms durations from word reveal → first stroke
+    wrongGuesses: 0,        // wrong guesses submitted
+    // transient, reset each drawing turn
+    _lastColor: null,
+    _firstStrokeThisTurn: true,
+    _wordRevealedAt: null,
+  };
 }
 
 export function createRoom(hostSocketId, hostName) {
@@ -46,11 +56,17 @@ export function createRoom(hostSocketId, hostName) {
     hostId,
     createdAt: Date.now(),
     lastActiveAt: Date.now(),
-    status: 'lobby', // lobby | choosing | drawing | round-end | finished
+    status: 'lobby',
     settings: { ...ROUND_DEFAULTS },
-    players: new Map(), // playerId -> player
-    socketToPlayer: new Map(), // socketId -> playerId
+    players: new Map(),
+    socketToPlayer: new Map(),
+    // ---- Round / drawer tracking ----
+    // "round" here = full round number (1-based).
+    // "turnIndex" = how many individual drawing turns have happened total.
+    // A full round completes when every player has drawn once:
+    //   turnIndex % drawerOrder.length === 0  (after first full lap)
     round: 0,
+    turnIndex: 0,           // total drawing turns elapsed across all rounds
     drawerOrder: [],
     drawerIndex: -1,
     currentWord: null,
@@ -59,17 +75,17 @@ export function createRoom(hostSocketId, hostName) {
     roundStartedAt: null,
     roundEndsAt: null,
     timer: null,
-    strokes: [], // current canvas stroke log, for replay capture
+    strokes: [],
     guesses: [],
     correctGuessersThisRound: new Set(),
-    scores: new Map(), // playerId -> score
-    streaks: new Map(), // playerId -> consecutive correct-guess streak
-    roundRecaps: [], // { word, drawerId, strokes, guessers } for replay after game
-    // Hint system
-    revealedLetterIndices: [], // letter positions revealed so far this round
-    hintGiven: false,           // whether the auto-hint fired this round
-    // Prediction Bonus
-    drawerPrediction: null
+    scores: new Map(),
+    streaks: new Map(),
+    roundRecaps: [],
+    revealedLetterIndices: [],
+    hintGiven: false,
+    drawerPrediction: null,
+    // ---- Per-player stats map ----
+    playerStats: new Map(),  // playerId -> stats object
   };
 
   addPlayer(room, hostSocketId, hostName, hostId, true);
@@ -101,6 +117,7 @@ export function addPlayer(room, socketId, name, forcedId, isHost = false) {
   room.socketToPlayer.set(socketId, playerId);
   if (!room.scores.has(playerId)) room.scores.set(playerId, 0);
   if (!room.streaks.has(playerId)) room.streaks.set(playerId, 0);
+  if (!room.playerStats.has(playerId)) room.playerStats.set(playerId, blankStats());
   room.lastActiveAt = Date.now();
   return player;
 }
@@ -108,7 +125,6 @@ export function addPlayer(room, socketId, name, forcedId, isHost = false) {
 export function reconnectPlayer(room, socketId, playerId) {
   const player = room.players.get(playerId);
   if (!player) return null;
-  // drop stale socket mapping if present
   for (const [sid, pid] of room.socketToPlayer.entries()) {
     if (pid === playerId) room.socketToPlayer.delete(sid);
   }
@@ -139,12 +155,12 @@ export function removePlayer(room, playerId) {
   room.players.delete(playerId);
   room.scores.delete(playerId);
   room.streaks.delete(playerId);
+  room.playerStats.delete(playerId);
   for (const [sid, pid] of room.socketToPlayer.entries()) {
     if (pid === playerId) room.socketToPlayer.delete(sid);
   }
   room.drawerOrder = room.drawerOrder.filter((id) => id !== playerId);
 
-  // reassign host if the host left
   if (room.hostId === playerId) {
     const next = room.players.values().next().value;
     if (next) {
@@ -182,7 +198,6 @@ export function nextDrawer(room) {
   if (room.drawerOrder.length === 0) buildDrawerOrder(room);
   room.drawerIndex = (room.drawerIndex + 1) % room.drawerOrder.length;
   const drawerId = room.drawerOrder[room.drawerIndex];
-  // skip disconnected players
   if (!room.players.get(drawerId)?.connected) {
     if (connectedPlayers(room).length === 0) return null;
     return nextDrawer(room);
@@ -194,18 +209,61 @@ export function currentDrawerId(room) {
   return room.drawerOrder[room.drawerIndex] || null;
 }
 
+/**
+ * startRound — advances one drawing TURN.
+ *
+ * A full "round" = all players have drawn once.
+ * room.round tracks full rounds (1-based).
+ * room.turnIndex counts individual drawing turns (0-based before increment).
+ *
+ * After this call room.round has been updated if a new full round just started.
+ */
+/**
+ * isGameComplete — true if every player has already drawn maxRounds times,
+ * i.e. the NEXT turn (turnIndex + 1) would belong to a round beyond
+ * maxRounds. This must be checked BEFORE calling startRound() for the next
+ * turn, since startRound() both advances turnIndex and recomputes
+ * room.round as a side effect — checking room.round *after* a turn ends
+ * only tells you about the turn that just finished, not whether another
+ * turn is about to start. Checking here, with no side effects, lets the
+ * caller decide whether to begin another turn at all.
+ */
+export function isGameComplete(room) {
+  const playerCount = room.drawerOrder.length || 1;
+  const nextTurnIndex = room.turnIndex + 1;
+  const nextRound = Math.ceil(nextTurnIndex / playerCount);
+  return nextRound > room.settings.maxRounds;
+}
+
 export function startRound(room) {
-  room.round += 1;
+  room.turnIndex += 1;
+  const playerCount = room.drawerOrder.length || 1;
+
+  // A new full round begins when we start the first turn of a new lap.
+  // Lap 1: turns 1..N → round 1
+  // Lap 2: turns N+1..2N → round 2   etc.
+  room.round = Math.ceil(room.turnIndex / playerCount);
+
   const drawerId = nextDrawer(room);
+
   room.strokes = [];
   room.guesses = [];
   room.correctGuessersThisRound = new Set();
   room.roundStartedAt = null;
   room.roundEndsAt = null;
-  // Reset hint state for new round
   room.revealedLetterIndices = [];
   room.hintGiven = false;
   room.drawerPrediction = null;
+
+  // Reset per-turn transient drawer stats
+  if (drawerId) {
+    const stats = room.playerStats.get(drawerId);
+    if (stats) {
+      stats._lastColor = null;
+      stats._firstStrokeThisTurn = true;
+      stats._wordRevealedAt = null;
+    }
+  }
 
   if (room.settings.choiceMode) {
     room.status = 'choosing';
@@ -224,7 +282,6 @@ export function confirmWordChoice(room, word) {
   room.currentWord = word;
   room.usedWords.push(word);
   room.status = 'predicting';
-  // Reset hints when word is locked in
   room.revealedLetterIndices = [];
   room.hintGiven = false;
   room.drawerPrediction = null;
@@ -234,18 +291,201 @@ export function startDrawingPhase(room) {
   room.status = 'drawing';
   room.roundStartedAt = Date.now();
   room.roundEndsAt = Date.now() + room.settings.drawTime * 1000;
+
+  // Record when word was revealed to the drawer (for think-time tracking)
+  const drawerId = currentDrawerId(room);
+  if (drawerId) {
+    const stats = room.playerStats.get(drawerId);
+    if (stats) stats._wordRevealedAt = Date.now();
+  }
 }
 
-// Returns the word masked with underscores, respecting revealed letter positions.
-// Spaces in multi-word answers are kept as wide gaps.
+// ---------- Stats tracking ----------
+
+/**
+ * Called from index.js canvas:stroke handler BEFORE pushing to room.strokes.
+ * Tracks: total strokes, color switches, first-stroke think time.
+ */
+export function trackDrawerStroke(room, stroke) {
+  const drawerId = currentDrawerId(room);
+  if (!drawerId) return;
+  const stats = room.playerStats.get(drawerId);
+  if (!stats) return;
+
+  stats.totalStrokes += 1;
+
+  // Think time: time from word reveal to first stroke
+  if (stats._firstStrokeThisTurn && stats._wordRevealedAt) {
+    const thinkMs = Date.now() - stats._wordRevealedAt;
+    stats.thinkTimeSamples.push(thinkMs);
+    stats._firstStrokeThisTurn = false;
+  }
+
+  // Color switch: if drawer changed color from previous stroke
+  const strokeColor = stroke.color;
+  if (stats._lastColor !== null && strokeColor !== stats._lastColor) {
+    stats.colorSwitches += 1;
+  }
+  stats._lastColor = strokeColor;
+}
+
+/**
+ * Called from index.js chat:guess handler for wrong guesses.
+ */
+export function trackWrongGuess(room, playerId) {
+  const stats = room.playerStats.get(playerId);
+  if (stats) stats.wrongGuesses += 1;
+}
+
+/**
+ * Called from index.js when a correct guess lands. Tracks fastest guess time.
+ * roundStartedAt is when drawing phase began.
+ */
+export function trackCorrectGuess(room, playerId) {
+  if (!room.roundStartedAt) return;
+  const stats = room.playerStats.get(playerId);
+  if (!stats) return;
+  const elapsed = Date.now() - room.roundStartedAt;
+  if (stats.fastestGuessMs === null || elapsed < stats.fastestGuessMs) {
+    stats.fastestGuessMs = elapsed;
+  }
+}
+
+// ---------- Badge assignment ----------
+
+/**
+ * Compute personality badges for all players at game end.
+ * Returns a Map: playerId -> { badge, description, statValue }
+ */
+export function assignBadges(room) {
+  const players = [...room.players.values()];
+  const badges = new Map();
+
+  if (players.length === 0) return badges;
+
+  // Collect stat summaries per player
+  const summaries = players.map((p) => {
+    const s = room.playerStats.get(p.id) || blankStats();
+    const avgThinkMs =
+      s.thinkTimeSamples.length > 0
+        ? s.thinkTimeSamples.reduce((a, b) => a + b, 0) / s.thinkTimeSamples.length
+        : null;
+    return {
+      id: p.id,
+      totalStrokes: s.totalStrokes,
+      colorSwitches: s.colorSwitches,
+      fastestGuessMs: s.fastestGuessMs,
+      avgThinkMs,
+      wrongGuesses: s.wrongGuesses,
+    };
+  });
+
+  // For each badge category, find the most distinctive player.
+  // We use a priority queue approach: assign to the player who wins their
+  // category by the largest relative margin, to avoid ties looking random.
+
+  const categoryWinners = [];
+
+  // 1. Minimalist: fewest total strokes (among players who drew at least once)
+  const drew = summaries.filter((s) => s.totalStrokes > 0);
+  if (drew.length > 0) {
+    const min = Math.min(...drew.map((s) => s.totalStrokes));
+    const candidates = drew.filter((s) => s.totalStrokes === min);
+    categoryWinners.push({
+      playerId: candidates[0].id,
+      badge: 'The Minimalist',
+      description: `Only ${min} stroke${min === 1 ? '' : 's'} — efficiency is an art form.`,
+      priority: drew.length > 1 ? (drew[1].totalStrokes - min) / (drew[1].totalStrokes || 1) : 1,
+    });
+  }
+
+  // 2. Colorful Chaos: most color switches
+  const maxSwitches = Math.max(...summaries.map((s) => s.colorSwitches));
+  if (maxSwitches > 0) {
+    const candidates = summaries.filter((s) => s.colorSwitches === maxSwitches);
+    categoryWinners.push({
+      playerId: candidates[0].id,
+      badge: 'Colorful Chaos',
+      description: `Switched colors ${maxSwitches} time${maxSwitches === 1 ? '' : 's'} — a true palette adventurer.`,
+      priority: maxSwitches / (summaries.reduce((a, s) => a + s.colorSwitches, 0) / summaries.length || 1),
+    });
+  }
+
+  // 3. Speedrunner: fastest correct guess
+  const guessers = summaries.filter((s) => s.fastestGuessMs !== null);
+  if (guessers.length > 0) {
+    const minMs = Math.min(...guessers.map((s) => s.fastestGuessMs));
+    const candidates = guessers.filter((s) => s.fastestGuessMs === minMs);
+    const secs = (minMs / 1000).toFixed(1);
+    categoryWinners.push({
+      playerId: candidates[0].id,
+      badge: 'The Speedrunner',
+      description: `Guessed correctly in ${secs}s — blink and you'd miss it.`,
+      priority: guessers.length > 1 ? (guessers[1].fastestGuessMs - minMs) / (guessers[1].fastestGuessMs || 1) : 1,
+    });
+  }
+
+  // 4. Overthinker: longest average think time (players who drew)
+  const drewWithThink = summaries.filter((s) => s.avgThinkMs !== null);
+  if (drewWithThink.length > 0) {
+    const maxThink = Math.max(...drewWithThink.map((s) => s.avgThinkMs));
+    const candidates = drewWithThink.filter((s) => s.avgThinkMs === maxThink);
+    const secs = (maxThink / 1000).toFixed(1);
+    categoryWinners.push({
+      playerId: candidates[0].id,
+      badge: 'The Overthinker',
+      description: `Averaged ${secs}s before the first stroke — great things take time.`,
+      priority: drewWithThink.length > 1
+        ? (maxThink - drewWithThink.filter((s) => s.avgThinkMs !== maxThink)[0]?.avgThinkMs || 0) / maxThink
+        : 1,
+    });
+  }
+
+  // 5. Creative Interpretation: most wrong guesses
+  const maxWrong = Math.max(...summaries.map((s) => s.wrongGuesses));
+  if (maxWrong > 0) {
+    const candidates = summaries.filter((s) => s.wrongGuesses === maxWrong);
+    categoryWinners.push({
+      playerId: candidates[0].id,
+      badge: 'Creative Interpretation Award',
+      description: `${maxWrong} unique guess${maxWrong === 1 ? '' : 'es'} — boldly seeing what others missed.`,
+      priority: maxWrong / (summaries.reduce((a, s) => a + s.wrongGuesses, 0) / summaries.length || 1),
+    });
+  }
+
+  // Assign badges: sort by priority desc, each player gets at most one badge.
+  const assigned = new Set();
+  categoryWinners.sort((a, b) => b.priority - a.priority);
+
+  for (const winner of categoryWinners) {
+    if (!assigned.has(winner.playerId)) {
+      assigned.add(winner.playerId);
+      badges.set(winner.playerId, { badge: winner.badge, description: winner.description });
+    }
+  }
+
+  // Players with no badge get a friendly fallback
+  for (const p of players) {
+    if (!badges.has(p.id)) {
+      badges.set(p.id, {
+        badge: 'All-Round Sketcher',
+        description: 'Solid performance across the board — the glue of every great game.',
+      });
+    }
+  }
+
+  return badges;
+}
+
+// ---------- Word masking ----------
+
 export function maskedWord(word, revealedIndices = []) {
   if (!word) return '';
-  // Build a flat char list (letters only, ignoring spaces)
   const chars = word.split('');
   let letterIdx = 0;
   return chars
     .map((ch) => {
-      if (ch === ' ') return '   '; // wide gap for word separator
+      if (ch === ' ') return '   ';
       const reveal = revealedIndices.includes(letterIdx);
       letterIdx++;
       return reveal ? ch : '_';
@@ -260,13 +500,10 @@ export function timeLeftSeconds(room) {
 
 // ---------- Hint system ----------
 
-// Reveal one random non-first, non-space letter from the current word.
-// Returns the updated list of revealed indices, or null if nothing new to reveal.
 export function revealHintLetter(room) {
   const word = room.currentWord;
   if (!word) return null;
 
-  // Build eligible flat letter indices (skip index 0 — first letter always hidden until end)
   const letters = word.split('');
   const eligibleIndices = [];
   let letterIdx = 0;
@@ -281,7 +518,6 @@ export function revealHintLetter(room) {
 
   if (eligibleIndices.length === 0) return null;
 
-  // Pick a random eligible index
   const pick = eligibleIndices[Math.floor(Math.random() * eligibleIndices.length)];
   room.revealedLetterIndices = [...room.revealedLetterIndices, pick];
   room.hintGiven = true;
@@ -290,13 +526,10 @@ export function revealHintLetter(room) {
 
 // ---------- Guess matching ----------
 
-// Normalise text for comparison: lowercase + collapse all whitespace
 function normaliseGuess(text) {
   return text.trim().toLowerCase().replace(/\s+/g, '');
 }
 
-// Levenshtein-ish closeness score used for the "heat" hint feature, without
-// revealing the actual word to guessers.
 export function guessHeat(guess, word) {
   const a = guess.trim().toLowerCase();
   const b = word.trim().toLowerCase();
@@ -307,7 +540,6 @@ export function guessHeat(guess, word) {
   const maxLen = Math.max(a.length, b.length);
   const similarity = 1 - dist / maxLen;
 
-  // Bonus for shared first letter / substring containment, feels more "warm/cold"
   let bonus = 0;
   if (b.includes(a) || a.includes(b)) bonus += 0.15;
   if (a[0] === b[0]) bonus += 0.1;
@@ -331,11 +563,9 @@ function levenshtein(a, b) {
 
 export function registerGuess(room, player, text, drawerId) {
   const word = room.currentWord;
-  // FIX: normalise spaces so "sword fish" matches "swordfish", and case-insensitive
   const isCorrect = normaliseGuess(text) === normaliseGuess(word || '');
   const alreadyCorrect = room.correctGuessersThisRound.has(player.id);
 
-  // FIX: block already-correct players from polluting the guess feed
   if (alreadyCorrect) {
     return { entry: null, isCorrect: false, pointsAwarded: 0, streakInfo: null };
   }
@@ -358,28 +588,25 @@ export function registerGuess(room, player, text, drawerId) {
   if (isCorrect) {
     room.correctGuessersThisRound.add(player.id);
 
-    // FIX: cap elapsedRatio to [0, 1] — server clock drift could push it above 1
+    // Track fastest guess for this player
+    trackCorrectGuess(room, player.id);
+
     const elapsedRatio = room.roundEndsAt
       ? Math.min(1, Math.max(0, (room.roundEndsAt - Date.now()) / (room.settings.drawTime * 1000)))
       : 0.5;
 
-    // Standard scoring: 50 to 500 points based on speed
     const speedBonus = Math.round(450 * elapsedRatio);
     pointsAwarded = 50 + speedBonus;
 
-    // First person to guess gets a 50 point bonus
     if (room.correctGuessersThisRound.size === 1) {
       pointsAwarded += 50;
     }
 
-    // Keep streak for UI/visuals, but don't multiply points (keeps game balanced)
     const currentStreak = (room.streaks.get(player.id) || 0) + 1;
     room.streaks.set(player.id, currentStreak);
 
     room.scores.set(player.id, (room.scores.get(player.id) || 0) + pointsAwarded);
 
-    // Standard drawer logic: Drawer gets 50% of the guesser's points
-    // This rewards the drawer for drawing quickly and clearly!
     if (drawerId && drawerId !== player.id) {
       const drawerShare = Math.round(pointsAwarded / 2);
       room.scores.set(drawerId, (room.scores.get(drawerId) || 0) + drawerShare);
@@ -388,8 +615,9 @@ export function registerGuess(room, player, text, drawerId) {
     streakInfo = { streak: currentStreak, pointsAwarded, multiplier: 1 };
     entry.text = text;
   } else {
-    // Wrong guess resets streak
     room.streaks.set(player.id, 0);
+    // Track wrong guess
+    trackWrongGuess(room, player.id);
   }
 
   room.guesses.push(entry);
@@ -415,8 +643,7 @@ export function endRound(room, reason) {
     strokes: room.strokes,
     guessers: [...room.correctGuessersThisRound]
   });
-  // cap stored recaps to last 12 rounds to bound memory
-  room.roundRecaps = room.roundRecaps.slice(-12);
+  room.roundRecaps = room.roundRecaps.slice(-24);
   return reason;
 }
 
@@ -438,6 +665,7 @@ export function leaderboard(room) {
 export function resetForReplay(room) {
   room.status = 'lobby';
   room.round = 0;
+  room.turnIndex = 0;
   room.drawerIndex = -1;
   room.currentWord = null;
   room.wordChoices = [];
@@ -451,9 +679,12 @@ export function resetForReplay(room) {
   room.hintGiven = false;
   for (const id of room.scores.keys()) room.scores.set(id, 0);
   for (const id of room.streaks.keys()) room.streaks.set(id, 0);
+  // Reset stats too
+  for (const id of room.playerStats.keys()) room.playerStats.set(id, blankStats());
 }
 
 export function publicRoomState(room) {
+  const playerCount = room.drawerOrder.length || room.players.size || 1;
   return {
     code: room.code,
     hostId: room.hostId,
@@ -471,7 +702,10 @@ export function publicRoomState(room) {
     guesses: room.guesses,
     correctGuessers: [...room.correctGuessersThisRound],
     hintGiven: room.hintGiven,
-    revealedCount: room.revealedLetterIndices.length
+    revealedCount: room.revealedLetterIndices.length,
+    // Show progress as turns within current round
+    turnInRound: room.drawerOrder.length > 0 ? ((room.drawerIndex + 1) % room.drawerOrder.length) || room.drawerOrder.length : 0,
+    playersInRound: playerCount,
   };
 }
 

@@ -104,37 +104,51 @@ export function useCanvasDrawing({ roomCode, canDraw }) {
     event.preventDefault();
     const point = getPoint(event);
     isDrawingRef.current = true;
+    const strokeColor = isEraser ? '#ffffff' : color;
+    const strokeSize = isEraser ? size * 2.4 : size;
+    const strokeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     currentStrokeRef.current = {
+      strokeId,
       points: [point],
-      color: isEraser ? '#ffffff' : color,
-      size: isEraser ? size * 2.4 : size
+      color: strokeColor,
+      size: strokeSize
     };
+
+    const dotSegment = { strokeId, points: [point], color: strokeColor, size: strokeSize };
+    allStrokesRef.current.push(dotSegment);
+    socket.emit('canvas:stroke', { code: roomCode, stroke: dotSegment });
   };
 
   const continueStroke = (event) => {
     if (!canDraw || !isDrawingRef.current) return;
     event.preventDefault();
     const point = getPoint(event);
-    currentStrokeRef.current.points.push(point);
+    const stroke = currentStrokeRef.current;
+    stroke.points.push(point);
 
     const ctx = canvasRef.current.getContext('2d');
-    const pts = currentStrokeRef.current.points;
-    const stroke = currentStrokeRef.current;
+    const pts = stroke.points;
+
     if (pts.length >= 2) {
-      const segment = { points: pts.slice(-2), color: stroke.color, size: stroke.size };
+      const segment = {
+        strokeId: stroke.strokeId,
+        points: pts.slice(-2),
+        color: stroke.color,
+        size: stroke.size
+      };
       paintStroke(ctx, segment);
+
+      allStrokesRef.current.push(segment);
+      socket.emit('canvas:stroke', { code: roomCode, stroke: segment });
     }
   };
 
   const endStroke = () => {
     if (!canDraw || !isDrawingRef.current) return;
     isDrawingRef.current = false;
-    const stroke = currentStrokeRef.current;
     currentStrokeRef.current = null;
-    if (!stroke || stroke.points.length === 0) return;
-
-    allStrokesRef.current.push(stroke);
-    socket.emit('canvas:stroke', { code: roomCode, stroke });
+    // No emit needed here anymore — every segment was already streamed
+    // live during continueStroke (and the initial dot during beginStroke).
   };
 
   const clearCanvas = () => {

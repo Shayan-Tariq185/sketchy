@@ -7,6 +7,7 @@ import {
   activeRoomCount,
   addPlayer,
   allNonDrawersGuessedCorrectly,
+  assignBadges,
   buildDrawerOrder,
   confirmWordChoice,
   connectedPlayers,
@@ -18,6 +19,7 @@ import {
   getRoom,
   guessHeat,
   isAtCapacity,
+  isGameComplete,
   isRoomEmpty,
   markDisconnected,
   publicRoomState,
@@ -28,7 +30,8 @@ import {
   revealHintLetter,
   startDrawingPhase,
   startRound,
-  timeLeftSeconds
+  timeLeftSeconds,
+  trackDrawerStroke,
 } from './roomManager.js';
 
 const PORT = process.env.PORT || 4000;
@@ -152,11 +155,24 @@ function finishRound(code, resultPayload) {
     const stillRoom = getRoom(code);
     if (!stillRoom || stillRoom.status !== 'round-end') return;
 
-    if (stillRoom.round >= stillRoom.settings.maxRounds) {
+    // Game ends once every player has drawn maxRounds times. We must check
+    // this BEFORE starting another turn -- checking room.round here only
+    // reflects the turn that just finished, which is one turn too late and
+    // lets an extra (maxRounds*playerCount + 1)-th turn slip through.
+    if (isGameComplete(stillRoom)) {
       stillRoom.status = 'finished';
+
+      // Compute personality badges from accumulated stats
+      const badgeMap = assignBadges(stillRoom);
+      const playerBadges = {};
+      for (const [pid, info] of badgeMap.entries()) {
+        playerBadges[pid] = info;
+      }
+
       io.to(code).emit('game:finished', {
         leaderboard: publicRoomState(stillRoom).players,
-        recaps: stillRoom.roundRecaps
+        recaps: stillRoom.roundRecaps,
+        playerBadges,
       });
       emitRoomState(code);
     } else {
@@ -358,6 +374,9 @@ io.on('connection', (socket) => {
     const player = getPlayerBySocket(room, socket.id);
     const drawerId = currentDrawerId(room);
     if (!player || player.id !== drawerId) return;
+
+    // Track stats before pushing stroke
+    trackDrawerStroke(room, stroke);
 
     room.strokes.push(stroke);
     socket.to(code).emit('canvas:stroke', stroke);

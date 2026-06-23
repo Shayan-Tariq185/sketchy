@@ -3,6 +3,37 @@ import { Crown, Home, RotateCcw, Trophy } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import RoundEndOverlay from '../components/RoundEndOverlay';
 
+// Badge emoji mapping for visual flair
+const BADGE_EMOJI = {
+  'The Minimalist': '✏️',
+  'Colorful Chaos': '🎨',
+  'The Speedrunner': '⚡',
+  'The Overthinker': '🤔',
+  'Creative Interpretation Award': '🌟',
+  'All-Round Sketcher': '🖊️',
+};
+
+function PersonalityCard({ player, badge, description, isMe }) {
+  const emoji = BADGE_EMOJI[badge] || '🎭';
+  return (
+    <div className={`personality-card ${isMe ? 'personality-card--me' : ''}`}>
+      <div className="personality-card__avatar" style={{ background: player.color }}>
+        {player.animal || player.name.slice(0, 1).toUpperCase()}
+      </div>
+      <div className="personality-card__body">
+        <p className="personality-card__name">
+          {player.name}{isMe ? ' (you)' : ''}
+        </p>
+        <p className="personality-card__badge">
+          <span className="personality-card__emoji">{emoji}</span>
+          {badge}
+        </p>
+        <p className="personality-card__desc">{description}</p>
+      </div>
+    </div>
+  );
+}
+
 export default function ResultsScreen() {
   const { gameResult, room, playerId, leaveRoom, startGame } = useGame();
   const [openRecap, setOpenRecap] = useState(null);
@@ -10,6 +41,10 @@ export default function ResultsScreen() {
   const me = room.players.find((p) => p.id === playerId);
   const sorted = [...leaderboard].sort((a, b) => b.score - a.score);
   const winner = sorted[0];
+
+  // Build a lookup map from leaderboard player id → player object
+  const playerById = Object.fromEntries(leaderboard.map((p) => [p.id, p]));
+  const playerBadges = gameResult?.playerBadges || {};
 
   return (
     <main className="screen screen-narrow">
@@ -26,13 +61,18 @@ export default function ResultsScreen() {
         )}
       </h1>
       <p className="home-subline" style={{ marginBottom: 22 }}>
-        {room.maxRounds} rounds, {room.players.length} players, countless questionable sketches.
+        {room.maxRounds} round{room.maxRounds !== 1 ? 's' : ''},{' '}
+        {room.players.length} player{room.players.length !== 1 ? 's' : ''},
+        countless questionable sketches.
       </p>
 
+      {/* ── Leaderboard ── */}
       <div className="paper-card results-board">
         {sorted.map((p, i) => (
           <div key={p.id} className={`results-row ${p.id === playerId ? 'is-me' : ''}`}>
-            <span className="results-rank">{i === 0 ? <Crown size={16} color="#FFC93C" /> : `#${i + 1}`}</span>
+            <span className="results-rank">
+              {i === 0 ? <Crown size={16} color="#FFC93C" /> : `#${i + 1}`}
+            </span>
             <span className="avatar-dot" style={{ background: p.color }}>
               {p.name.slice(0, 1).toUpperCase()}
             </span>
@@ -45,6 +85,35 @@ export default function ResultsScreen() {
         ))}
       </div>
 
+      {/* ── Personality cards ── */}
+      {Object.keys(playerBadges).length > 0 && (
+        <section className="paper-card lobby-section personality-section">
+          <div className="lobby-section-head">
+            <span style={{ fontSize: 15 }}>🎭</span>
+            <h3>Player Personalities</h3>
+          </div>
+          <p className="lobby-hint" style={{ marginTop: -6, marginBottom: 14 }}>
+            How did everyone really play?
+          </p>
+          <div className="personality-grid">
+            {sorted.map((p) => {
+              const badgeInfo = playerBadges[p.id];
+              if (!badgeInfo) return null;
+              return (
+                <PersonalityCard
+                  key={p.id}
+                  player={playerById[p.id] || p}
+                  badge={badgeInfo.badge}
+                  description={badgeInfo.description}
+                  isMe={p.id === playerId}
+                />
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* ── Drawing replays ── */}
       {gameResult?.recaps?.length ? (
         <section className="paper-card lobby-section">
           <div className="lobby-section-head">
