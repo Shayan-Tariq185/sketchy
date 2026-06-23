@@ -62,7 +62,9 @@ export default function GuessFeed({ isDrawer, canGuess }) {
   }
 
   const placeholder = isDrawer
-    ? 'Say something...'
+    ? room.status === 'drawing'
+      ? 'Chat costs −20 pts while drawing…'
+      : 'Say something...'
     : alreadyGuessed
     ? '🎉 You guessed it!'
     : canGuess
@@ -88,7 +90,10 @@ export default function GuessFeed({ isDrawer, canGuess }) {
                 <span className="guess-author" style={{ color: g.color }}>
                   {g.playerName}
                 </span>
-                <span className="guess-text">{guessedRight ? '🎉 guessed the word!' : g.text}</span>
+                <span className="guess-text">
+                  {guessedRight ? '🎉 guessed the word!' : g.text}
+                  {g.drawerPenalty ? ` (−${g.drawerPenalty} drawer pts)` : ''}
+                </span>
               </div>
             );
           })

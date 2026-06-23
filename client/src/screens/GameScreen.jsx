@@ -9,6 +9,7 @@ import WordChoiceOverlay from '../components/WordChoiceOverlay';
 import PredictionOverlay from '../components/PredictionOverlay';
 import RoundEndOverlay from '../components/RoundEndOverlay';
 import CorrectGuessFlash from '../components/CorrectGuessFlash';
+import BonusRoundOverlay from '../components/BonusRoundOverlay';
 
 export default function GameScreen() {
   const { room, playerId, chooseWord, roundEndInfo, setRoundEndInfo, lastCorrect } = useGame();
@@ -37,7 +38,8 @@ export default function GameScreen() {
   }, [room.status, roundEndInfo, setRoundEndInfo]);
 
   return (
-    <main className="screen screen-wide game-screen">
+    <main className={`screen screen-wide game-screen ${room.status?.startsWith('bonus') ? 'game-screen--bonus' : ''}`}>
+      {!room.status?.startsWith('bonus') ? (
       <div className="game-grid">
         <RoundSidebar isDrawer={isDrawer} />
 
@@ -45,6 +47,7 @@ export default function GameScreen() {
 
         <GuessFeed isDrawer={isDrawer} canGuess={canGuess} />
       </div>
+      ) : null}
 
       {room.status === 'choosing' && isDrawer ? (
         <WordChoiceOverlay choices={room.wordChoices} onChoose={chooseWord} />
@@ -65,6 +68,8 @@ export default function GameScreen() {
       {room.status === 'round-end' && roundEndInfo ? <RoundEndOverlay info={roundEndInfo} /> : null}
 
       {lastCorrect ? <CorrectGuessFlash payload={lastCorrect} /> : null}
+
+      <BonusRoundOverlay />
     </main>
   );
 }

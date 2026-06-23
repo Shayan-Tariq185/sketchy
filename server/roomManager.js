@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import { pickWord, pickWordChoices } from './wordBank.js';
+import { bonusPublicSlice } from './bonusRound.js';
 
 // In-memory room store. Fine for a self-hosted / small-scale party game —
 // no database needed. Rooms are garbage collected when empty for a while.
@@ -16,7 +17,9 @@ const ROUND_DEFAULTS = {
   drawTime: 80,
   wordPack: 'Classic',
   difficulty: 'Medium',
-  choiceMode: true
+  choiceMode: true,
+  smartHints: false,  // narrator hints instead of letter reveals
+  bonusRound: false   // simultaneous draw + attribution round (5+ players)
 };
 
 const AVATAR_PALETTE = ['#FF5D5D', '#3DDC97', '#FFC93C', '#4D6BFE', '#B26BFF', '#FF8FB1', '#33C9C9', '#FF9F4D'];
@@ -40,6 +43,11 @@ function blankStats() {
     fastestGuessMs: null,   // best guess time in ms (null = never guessed correctly)
     thinkTimeSamples: [],   // array of ms durations from word reveal → first stroke
     wrongGuesses: 0,        // wrong guesses submitted
+    drawerChatMessages: 0,  // chat messages sent while drawing
+    drawerChatPenaltyTotal: 0,
+    predictionAttempts: 0,
+    predictionHits: 0,
+    bonusCorrectGuesses: 0,
     // transient, reset each drawing turn
     _lastColor: null,
     _firstStrokeThisTurn: true,
@@ -86,6 +94,13 @@ export function createRoom(hostSocketId, hostName) {
     drawerPrediction: null,
     // ---- Per-player stats map ----
     playerStats: new Map(),  // playerId -> stats object
+    smartHintsGiven: new Set(),
+    narratorHints: [],
+    bonusWord: null,
+    bonusSubmissions: null,
+    bonusGuesses: null,
+    bonusDisplayOrder: null,
+    bonusEndsAt: null,
   };
 
   addPlayer(room, hostSocketId, hostName, hostId, true);
@@ -254,6 +269,8 @@ export function startRound(room) {
   room.revealedLetterIndices = [];
   room.hintGiven = false;
   room.drawerPrediction = null;
+  room.smartHintsGiven = new Set();
+  room.narratorHints = [];
 
   // Reset per-turn transient drawer stats
   if (drawerId) {
@@ -477,6 +494,128 @@ export function assignBadges(room) {
   return badges;
 }
 
+/**
+ * End-of-game "roast recap" highlights — fun stat callouts alongside badges.
+ */
+export function buildRoastRecap(room) {
+  const players = [...room.players.values()];
+  const highlights = [];
+
+  const summaries = players.map((p) => {
+    const s = room.playerStats.get(p.id) || blankStats();
+    return {
+      id: p.id,
+      name: p.name,
+      color: p.color,
+      wrongGuesses: s.wrongGuesses,
+      fastestGuessMs: s.fastestGuessMs,
+      totalStrokes: s.totalStrokes,
+      drawerChatPenaltyTotal: s.drawerChatPenaltyTotal || 0,
+      drawerChatMessages: s.drawerChatMessages || 0,
+      predictionHits: s.predictionHits || 0,
+      predictionAttempts: s.predictionAttempts || 0,
+      bonusCorrectGuesses: s.bonusCorrectGuesses || 0,
+    };
+  });
+
+  const maxWrong = Math.max(...summaries.map((s) => s.wrongGuesses));
+  if (maxWrong > 0) {
+    const p = summaries.find((s) => s.wrongGuesses === maxWrong);
+    highlights.push({
+      emoji: '🎯',
+      title: 'Chaos Guesser',
+      playerId: p.id,
+      playerName: p.name,
+      line: `${p.name} fired off ${maxWrong} wrong guess${maxWrong === 1 ? '' : 'es'} — bold energy.`
+    });
+  }
+
+  const speedsters = summaries.filter((s) => s.fastestGuessMs !== null);
+  if (speedsters.length > 0) {
+    const minMs = Math.min(...speedsters.map((s) => s.fastestGuessMs));
+    const p = speedsters.find((s) => s.fastestGuessMs === minMs);
+    highlights.push({
+      emoji: '⚡',
+      title: 'Lightning Fingers',
+      playerId: p.id,
+      playerName: p.name,
+      line: `${p.name} guessed correctly in ${(minMs / 1000).toFixed(1)}s — blink and you miss it.`
+    });
+  }
+
+  const chatty = summaries.filter((s) => s.drawerChatMessages > 0);
+  if (chatty.length > 0) {
+    const p = chatty.reduce((a, b) => (b.drawerChatPenaltyTotal > a.drawerChatPenaltyTotal ? b : a));
+    highlights.push({
+      emoji: '💸',
+      title: 'Chatty Drawer',
+      playerId: p.id,
+      playerName: p.name,
+      line: `${p.name} typed ${p.drawerChatMessages} time${p.drawerChatMessages === 1 ? '' : 's'} while drawing and lost ${p.drawerChatPenaltyTotal} pts.`
+    });
+  }
+
+  const predictors = summaries.filter((s) => s.predictionAttempts > 0);
+  if (predictors.length > 0) {
+    const p = predictors.reduce((a, b) => (b.predictionHits > a.predictionHits ? b : a));
+    if (p.predictionHits > 0) {
+      highlights.push({
+        emoji: '🔮',
+        title: 'Mind Reader',
+        playerId: p.id,
+        playerName: p.name,
+        line: `${p.name} nailed ${p.predictionHits} drawer prediction${p.predictionHits === 1 ? '' : 's'}.`
+      });
+    }
+  }
+
+  const minimalists = summaries.filter((s) => s.totalStrokes > 0);
+  if (minimalists.length > 0) {
+    const minStrokes = Math.min(...minimalists.map((s) => s.totalStrokes));
+    const p = minimalists.find((s) => s.totalStrokes === minStrokes);
+    highlights.push({
+      emoji: '✏️',
+      title: 'One-Line Wonder',
+      playerId: p.id,
+      playerName: p.name,
+      line: `${p.name} drew a masterpiece in only ${minStrokes} stroke${minStrokes === 1 ? '' : 's'}.`
+    });
+  }
+
+  const bonusStars = summaries.filter((s) => s.bonusCorrectGuesses > 0);
+  if (bonusStars.length > 0) {
+    const p = bonusStars.reduce((a, b) => (b.bonusCorrectGuesses > a.bonusCorrectGuesses ? b : a));
+    highlights.push({
+      emoji: '🕵️',
+      title: 'Art Detective',
+      playerId: p.id,
+      playerName: p.name,
+      line: `${p.name} spotted ${p.bonusCorrectGuesses} drawing${p.bonusCorrectGuesses === 1 ? '' : 's'} correctly in the bonus round.`
+    });
+  }
+
+  return { highlights: highlights.slice(0, 6) };
+}
+
+export function trackDrawerPrediction(room, drawerId, hit) {
+  const stats = room.playerStats.get(drawerId);
+  if (!stats) return;
+  stats.predictionAttempts = (stats.predictionAttempts || 0) + 1;
+  if (hit) stats.predictionHits = (stats.predictionHits || 0) + 1;
+}
+
+export function applyDrawerChatPenalty(room, drawerId) {
+  const PENALTY = 20;
+  const current = room.scores.get(drawerId) || 0;
+  room.scores.set(drawerId, Math.max(0, current - PENALTY));
+  const stats = room.playerStats.get(drawerId);
+  if (stats) {
+    stats.drawerChatMessages = (stats.drawerChatMessages || 0) + 1;
+    stats.drawerChatPenaltyTotal = (stats.drawerChatPenaltyTotal || 0) + PENALTY;
+  }
+  return PENALTY;
+}
+
 // ---------- Word masking ----------
 
 export function maskedWord(word, revealedIndices = []) {
@@ -679,13 +818,20 @@ export function resetForReplay(room) {
   room.hintGiven = false;
   for (const id of room.scores.keys()) room.scores.set(id, 0);
   for (const id of room.streaks.keys()) room.streaks.set(id, 0);
+  room.smartHintsGiven = new Set();
+  room.narratorHints = [];
+  room.bonusWord = null;
+  room.bonusSubmissions = null;
+  room.bonusGuesses = null;
+  room.bonusDisplayOrder = null;
+  room.bonusEndsAt = null;
   // Reset stats too
   for (const id of room.playerStats.keys()) room.playerStats.set(id, blankStats());
 }
 
 export function publicRoomState(room) {
   const playerCount = room.drawerOrder.length || room.players.size || 1;
-  return {
+  const base = {
     code: room.code,
     hostId: room.hostId,
     status: room.status,
@@ -703,10 +849,17 @@ export function publicRoomState(room) {
     correctGuessers: [...room.correctGuessersThisRound],
     hintGiven: room.hintGiven,
     revealedCount: room.revealedLetterIndices.length,
+    narratorHints: room.narratorHints || [],
     // Show progress as turns within current round
     turnInRound: room.drawerOrder.length > 0 ? ((room.drawerIndex + 1) % room.drawerOrder.length) || room.drawerOrder.length : 0,
     playersInRound: playerCount,
   };
+
+  if (room.status?.startsWith('bonus')) {
+    Object.assign(base, bonusPublicSlice(room));
+  }
+
+  return base;
 }
 
 export { rooms };

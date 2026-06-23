@@ -1,4 +1,4 @@
-import { LogOut, Palette, Play, Sparkles, Timer, Users } from 'lucide-react';
+import { LogOut, Palette, Play, Sparkles, Timer, Users, Mic, Gift } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import RoomCodeTicket from '../components/RoomCodeTicket';
 import PlayerList from '../components/PlayerList';
@@ -11,6 +11,7 @@ export default function LobbyScreen() {
   const me = room.players.find((p) => p.id === playerId);
   const isHost = !!me?.isHost;
   const canStart = room.players.filter((p) => p.connected).length >= 2;
+  const canBonus = room.players.filter((p) => p.connected).length >= 5;
 
   return (
     <main className="screen screen-narrow">
@@ -118,6 +119,35 @@ export default function LobbyScreen() {
           />
           <span>Let the drawer pick from 3 words each round</span>
         </label>
+
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            disabled={!isHost}
+            checked={!!room.settings.smartHints}
+            onChange={(e) => updateSettings({ smartHints: e.target.checked })}
+          />
+          <span>
+            <Mic size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+            Smart narrator hints (playful clues instead of letter reveals)
+          </span>
+        </label>
+
+        <label className={`toggle-row ${!canBonus ? 'toggle-row--disabled' : ''}`}>
+          <input
+            type="checkbox"
+            disabled={!isHost || !canBonus}
+            checked={!!room.settings.bonusRound && canBonus}
+            onChange={(e) => updateSettings({ bonusRound: e.target.checked })}
+          />
+          <span>
+            <Gift size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+            Bonus round after the match (5+ players — everyone draws, then guess who drew what)
+          </span>
+        </label>
+        {!canBonus ? (
+          <p className="lobby-hint">Need at least 5 players in the room to unlock the bonus round.</p>
+        ) : null}
       </section>
 
       {isHost ? (

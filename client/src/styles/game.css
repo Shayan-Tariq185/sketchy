@@ -670,3 +670,90 @@
     min-height: 320px;
   }
 }
+
+/* ---------- Narrator hints ---------- */
+.narrator-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.narrator-line {
+  font-size: 12.5px;
+  line-height: 1.35;
+  margin: 0;
+}
+
+/* ---------- Bonus round ---------- */
+.bonus-overlay .bonus-card {
+  max-width: 960px;
+  width: min(96vw, 960px);
+  max-height: 92vh;
+  overflow-y: auto;
+}
+
+.bonus-headline {
+  font-size: 1.5rem;
+  margin: 8px 0 6px;
+}
+
+.bonus-subline {
+  color: var(--ink-faint);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.bonus-canvas-wrap {
+  border: 2px solid var(--ink);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.bonus-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  aspect-ratio: 1280 / 800;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.bonus-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.bonus-guess-grid,
+.bonus-reveal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.bonus-guess-card,
+.bonus-reveal-card {
+  padding: 12px;
+}
+
+.bonus-drawing-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.bonus-mini-canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+  background: #fff;
+}

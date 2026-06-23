@@ -178,3 +178,40 @@
   color: var(--ink-faint);
   line-height: 1.4;
 }
+
+.roast-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.roast-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--paper-dim);
+}
+
+.roast-card__emoji {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.roast-card__title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 4px;
+  color: var(--ink-soft);
+}
+
+.roast-card__line {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+}

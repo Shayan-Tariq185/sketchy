@@ -135,6 +135,10 @@
   accent-color: var(--coral);
 }
 
+.toggle-row--disabled {
+  opacity: 0.55;
+}
+
 .btn-lg {
   padding: 16px 24px;
   font-size: 16px;

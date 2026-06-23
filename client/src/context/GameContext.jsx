@@ -8,7 +8,7 @@ const initialRoomState = {
   code: '',
   hostId: '',
   status: 'idle', // idle | lobby | choosing | drawing | round-end | finished
-  settings: { maxRounds: 6, drawTime: 80, wordPack: 'Classic', difficulty: 'Medium', choiceMode: true },
+  settings: { maxRounds: 6, drawTime: 80, wordPack: 'Classic', difficulty: 'Medium', choiceMode: true, smartHints: false, bonusRound: false },
   round: 0,
   maxRounds: 6,
   drawerId: null,
@@ -21,7 +21,14 @@ const initialRoomState = {
   guesses: [],
   correctGuessers: [],
   hintGiven: false,
-  revealedCount: 0
+  revealedCount: 0,
+  narratorHints: [],
+  bonusWord: '',
+  bonusTimeLeft: 0,
+  bonusDrawings: [],
+  bonusSubmittedCount: 0,
+  bonusTotalPlayers: 0,
+  bonusGuessesSubmittedCount: 0
 };
 
 export function GameProvider({ children }) {
@@ -37,6 +44,8 @@ export function GameProvider({ children }) {
   const [lastCorrect, setLastCorrect] = useState(null);
   const [roundEndInfo, setRoundEndInfo] = useState(null);
   const [gameResult, setGameResult] = useState(null);
+  const [bonusWord, setBonusWord] = useState('');
+  const [bonusResults, setBonusResults] = useState(null);
   const [view, setView] = useState('home'); // home | lobby | game | results
 
   const strokeListeners = useRef(new Set());
@@ -198,6 +207,28 @@ export function GameProvider({ children }) {
       pushToast('💡 A letter has been revealed!');
     }
 
+    function onHintNarrator({ text }) {
+      setRoom((prev) => ({
+        ...prev,
+        hintGiven: true,
+        narratorHints: [...(prev.narratorHints || []), text]
+      }));
+      pushToast(text);
+    }
+
+    function onBonusWord({ word }) {
+      setBonusWord(word);
+    }
+
+    function onBonusTick({ timeLeft }) {
+      setRoom((prev) => ({ ...prev, bonusTimeLeft: timeLeft }));
+    }
+
+    function onBonusResults(payload) {
+      setBonusResults(payload);
+      setRoom((prev) => ({ ...prev, players: payload.leaderboard || prev.players }));
+    }
+
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('room:state', onRoomState);
@@ -214,6 +245,10 @@ export function GameProvider({ children }) {
     socket.on('player:kicked', onPlayerKicked);
     socket.on('chat:message', onChatMessage);
     socket.on('hint:letter', onHintLetter);
+    socket.on('hint:narrator', onHintNarrator);
+    socket.on('bonus:word', onBonusWord);
+    socket.on('bonus:tick', onBonusTick);
+    socket.on('bonus:results', onBonusResults);
 
     return () => {
       socket.off('connect', onConnect);
@@ -232,6 +267,10 @@ export function GameProvider({ children }) {
       socket.off('player:kicked', onPlayerKicked);
       socket.off('chat:message', onChatMessage);
       socket.off('hint:letter', onHintLetter);
+      socket.off('hint:narrator', onHintNarrator);
+      socket.off('bonus:word', onBonusWord);
+      socket.off('bonus:tick', onBonusTick);
+      socket.off('bonus:results', onBonusResults);
       stopClientTimer();
     };
   }, [pushToast, startClientTimer, stopClientTimer]);
@@ -279,6 +318,8 @@ export function GameProvider({ children }) {
     setRoom(initialRoomState);
     setView('home');
     setGameResult(null);
+    setBonusWord('');
+    setBonusResults(null);
     setRoundEndInfo(null);
     stopClientTimer();
   }, [room.code, stopClientTimer]);
@@ -292,6 +333,8 @@ export function GameProvider({ children }) {
 
   const startGame = useCallback(() => {
     setGameResult(null);
+    setBonusWord('');
+    setBonusResults(null);
     setView('game');
     socket.emit('room:start', { code: room.code });
   }, [room.code]);
@@ -346,8 +389,15 @@ export function GameProvider({ children }) {
     [room.code]
   );
 
+  const submitBonusGuess = useCallback(
+    (assignments) => {
+      socket.emit('bonus:guess', { code: room.code, assignments });
+    },
+    [room.code]
+  );
+
   useEffect(() => {
-    if (room.status === 'choosing' || room.status === 'predicting' || room.status === 'drawing') {
+    if (room.status === 'choosing' || room.status === 'predicting' || room.status === 'drawing' || room.status?.startsWith('bonus')) {
       setView('game');
     }
   }, [room.status]);
@@ -369,6 +419,9 @@ export function GameProvider({ children }) {
     setRoundEndInfo,
     gameResult,
     setGameResult,
+    bonusWord,
+    bonusResults,
+    submitBonusGuess,
     view,
     setView,
     createRoom,

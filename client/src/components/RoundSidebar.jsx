@@ -54,12 +54,28 @@ export default function RoundSidebar({ isDrawer }) {
         </div>
       </div>
 
-      {/* Hint status — only shown to guessers during drawing */}
+      {/* Hint status — guessers during drawing */}
       {!isDrawer && room.status === 'drawing' ? (
         <div className={`paper-card sidebar-block hint-block ${room.hintGiven ? 'hint-active' : ''}`}>
           <div className="hint-row">
             <Lightbulb size={14} />
-            {room.hintGiven ? (
+            {room.settings.smartHints ? (
+              room.narratorHints?.length ? (
+                <div className="narrator-hints">
+                  {room.narratorHints.map((hint, i) => (
+                    <p key={i} className="hint-text hint-revealed narrator-line">
+                      {hint}
+                    </p>
+                  ))}
+                </div>
+              ) : timeUntilHint > 0 ? (
+                <span className="hint-text">
+                  Sketchy hints in <strong>{timeUntilHint}s</strong>
+                </span>
+              ) : (
+                <span className="hint-text">A hint is coming…</span>
+              )
+            ) : room.hintGiven ? (
               <span className="hint-text hint-revealed">
                 💡 {room.revealedCount} letter{room.revealedCount !== 1 ? 's' : ''} revealed!
               </span>

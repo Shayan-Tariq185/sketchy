@@ -7,8 +7,10 @@ import {
   activeRoomCount,
   addPlayer,
   allNonDrawersGuessedCorrectly,
+  applyDrawerChatPenalty,
   assignBadges,
   buildDrawerOrder,
+  buildRoastRecap,
   confirmWordChoice,
   connectedPlayers,
   createRoom,
@@ -31,8 +33,22 @@ import {
   startDrawingPhase,
   startRound,
   timeLeftSeconds,
+  trackDrawerPrediction,
   trackDrawerStroke,
 } from './roomManager.js';
+import {
+  allBonusDrawingsSubmitted,
+  allBonusGuessesSubmitted,
+  bonusTimeLeftSeconds,
+  canRunBonusRound,
+  clearBonusState,
+  initBonusRound,
+  resolveAnonId,
+  scoreBonusRound,
+  startBonusDrawingPhase,
+  startBonusGuessingPhase,
+} from './bonusRound.js';
+import { generateSmartHint } from './smartHints.js';
 
 const PORT = process.env.PORT || 4000;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || '*';
@@ -52,6 +68,7 @@ const io = new Server(httpServer, {
 
 const MAX_PLAYERS = 12;
 const ROUND_END_PAUSE_MS = 4200;
+const BONUS_RESULTS_PAUSE_MS = 6000;
 const EMPTY_ROOM_GRACE_MS = 5 * 60 * 1000;
 
 function emitRoomState(code) {
@@ -73,6 +90,51 @@ function clearRoomTimer(room) {
   }
 }
 
+function maybeTriggerHints(code, room) {
+  if (!room.roundEndsAt || room.status !== 'drawing') return;
+
+  const totalMs = room.settings.drawTime * 1000;
+  const elapsed = Date.now() - (room.roundEndsAt - totalMs);
+  const ratio = elapsed / totalMs;
+
+  if (room.settings.smartHints) {
+    const stages = [
+      { at: 0.5, stage: 0 },
+      { at: 0.7, stage: 1 },
+      { at: 0.85, stage: 2 }
+    ];
+    for (const { at, stage } of stages) {
+      if (ratio >= at && !room.smartHintsGiven.has(stage)) {
+        room.smartHintsGiven.add(stage);
+        const text = generateSmartHint(
+          room.currentWord,
+          room.settings.wordPack,
+          room.settings.difficulty,
+          stage
+        );
+        room.narratorHints = [...(room.narratorHints || []), text];
+        room.hintGiven = true;
+        io.to(code).emit('hint:narrator', { text, stage });
+        emitRoomState(code);
+      }
+    }
+    return;
+  }
+
+  // Classic letter hint at 50%
+  if (!room.hintGiven && ratio >= 0.5) {
+    const revealed = revealHintLetter(room);
+    if (revealed) {
+      const state = publicRoomState(room);
+      io.to(code).emit('hint:letter', {
+        maskedWord: state.maskedWord,
+        revealedCount: state.revealedCount
+      });
+      emitRoomState(code);
+    }
+  }
+}
+
 function tickRoom(code) {
   const room = getRoom(code);
   if (!room || room.status !== 'drawing') return;
@@ -80,28 +142,112 @@ function tickRoom(code) {
   const left = timeLeftSeconds(room);
   io.to(code).emit('round:tick', { timeLeft: left });
 
-  // Auto-reveal a hint letter once, at the 50% time mark
-  if (!room.hintGiven && room.roundEndsAt) {
-    const elapsed = Date.now() - (room.roundEndsAt - room.settings.drawTime * 1000);
-    const halfTime = room.settings.drawTime * 1000 * 0.5;
-    if (elapsed >= halfTime) {
-      const revealed = revealHintLetter(room);
-      if (revealed) {
-        // Send the updated masked word + hint flag to all guessers
-        const state = publicRoomState(room);
-        io.to(code).emit('hint:letter', {
-          maskedWord: state.maskedWord,
-          revealedCount: state.revealedCount
-        });
-        // Also update the full room state so the masked word refreshes for everyone
-        emitRoomState(code);
-      }
-    }
-  }
+  maybeTriggerHints(code, room);
 
   if (left <= 0) {
     finishRound(code, { type: 'timeout', word: room.currentWord });
   }
+}
+
+function tickBonusRound(code) {
+  const room = getRoom(code);
+  if (!room || !room.status?.startsWith('bonus')) return;
+
+  const left = bonusTimeLeftSeconds(room);
+  io.to(code).emit('bonus:tick', { timeLeft: left });
+
+  if (room.status === 'bonus-drawing') {
+    if (left <= 0 || allBonusDrawingsSubmitted(room)) {
+      transitionBonusToGuessing(code);
+    }
+  } else if (room.status === 'bonus-guessing') {
+    if (left <= 0 || allBonusGuessesSubmitted(room)) {
+      finishBonusRound(code);
+    }
+  }
+}
+
+function finishGame(code) {
+  const room = getRoom(code);
+  if (!room) return;
+  clearRoomTimer(room);
+  clearBonusState(room);
+  room.status = 'finished';
+
+  const badgeMap = assignBadges(room);
+  const playerBadges = {};
+  for (const [pid, info] of badgeMap.entries()) {
+    playerBadges[pid] = info;
+  }
+
+  const roastRecap = buildRoastRecap(room);
+
+  io.to(code).emit('game:finished', {
+    leaderboard: publicRoomState(room).players,
+    recaps: room.roundRecaps,
+    playerBadges,
+    roastRecap,
+  });
+  emitRoomState(code);
+}
+
+function beginBonusRound(code) {
+  const room = getRoom(code);
+  if (!room || !canRunBonusRound(room)) {
+    finishGame(code);
+    return;
+  }
+
+  initBonusRound(room);
+  startBonusDrawingPhase(room);
+  emitRoomState(code);
+
+  // Everyone gets the bonus word
+  io.to(code).emit('bonus:word', { word: room.bonusWord });
+
+  clearRoomTimer(room);
+  room.timer = setInterval(() => tickBonusRound(code), 1000);
+}
+
+function transitionBonusToGuessing(code) {
+  const room = getRoom(code);
+  if (!room || room.status !== 'bonus-drawing') return;
+
+  startBonusGuessingPhase(room);
+  emitRoomState(code);
+  io.to(code).emit('bonus:phase', { phase: 'guessing' });
+}
+
+function finishBonusRound(code) {
+  const room = getRoom(code);
+  if (!room || room.status !== 'bonus-guessing') return;
+
+  clearRoomTimer(room);
+  const results = scoreBonusRound(room);
+  room.status = 'bonus-results';
+
+  const reveal = room.bonusDisplayOrder.map((playerId, index) => ({
+    anonId: `drawing-${index}`,
+    label: String.fromCharCode(65 + index),
+    playerId,
+    playerName: room.players.get(playerId)?.name || 'Unknown',
+    strokes: room.bonusSubmissions.get(playerId)?.strokes || []
+  }));
+
+  emitRoomState(code);
+
+  io.to(code).emit('bonus:results', {
+    word: room.bonusWord,
+    results,
+    reveal,
+    leaderboard: publicRoomState(room).players
+  });
+
+  setTimeout(() => {
+    const stillRoom = getRoom(code);
+    if (!stillRoom || stillRoom.status !== 'bonus-results') return;
+    finishGame(code);
+  }, BONUS_RESULTS_PAUSE_MS);
 }
 
 function finishRound(code, resultPayload) {
@@ -120,7 +266,11 @@ function finishRound(code, resultPayload) {
       const drawerId = currentDrawerId(room);
       if (drawerId) {
         room.scores.set(drawerId, (room.scores.get(drawerId) || 0) + bonus);
+        trackDrawerPrediction(room, drawerId, true);
       }
+    } else {
+      const drawerId = currentDrawerId(room);
+      if (drawerId) trackDrawerPrediction(room, drawerId, false);
     }
     predictionInfo = { predicted: room.drawerPrediction, actual: actualCorrect, hit, bonus };
   }
@@ -160,21 +310,11 @@ function finishRound(code, resultPayload) {
     // reflects the turn that just finished, which is one turn too late and
     // lets an extra (maxRounds*playerCount + 1)-th turn slip through.
     if (isGameComplete(stillRoom)) {
-      stillRoom.status = 'finished';
-
-      // Compute personality badges from accumulated stats
-      const badgeMap = assignBadges(stillRoom);
-      const playerBadges = {};
-      for (const [pid, info] of badgeMap.entries()) {
-        playerBadges[pid] = info;
+      if (canRunBonusRound(stillRoom)) {
+        beginBonusRound(code);
+      } else {
+        finishGame(code);
       }
-
-      io.to(code).emit('game:finished', {
-        leaderboard: publicRoomState(stillRoom).players,
-        recaps: stillRoom.roundRecaps,
-        playerBadges,
-      });
-      emitRoomState(code);
     } else {
       beginRound(code);
     }
@@ -333,6 +473,11 @@ io.on('connection', (socket) => {
     if (settings.wordPack) next.wordPack = settings.wordPack;
     if (settings.difficulty) next.difficulty = settings.difficulty;
     if (typeof settings.choiceMode === 'boolean') next.choiceMode = settings.choiceMode;
+    if (typeof settings.smartHints === 'boolean') next.smartHints = settings.smartHints;
+    if (typeof settings.bonusRound === 'boolean') {
+      const count = connectedPlayers(room).length;
+      next.bonusRound = settings.bonusRound && count >= 5;
+    }
     room.settings = next;
     emitRoomState(code);
   });
@@ -441,11 +586,18 @@ io.on('connection', (socket) => {
   });
 
   socket.on('chat:message', ({ code, text }) => {
-    // free chat (no guessing implications) usable in lobby / between rounds
     const room = getRoom(code);
     if (!room || !text?.trim()) return;
     const player = getPlayerBySocket(room, socket.id);
     if (!player) return;
+
+    const drawerId = currentDrawerId(room);
+    let penalty = 0;
+    if (player.id === drawerId && room.status === 'drawing') {
+      penalty = applyDrawerChatPenalty(room, drawerId);
+      emitRoomState(code);
+    }
+
     io.to(code).emit('chat:message', {
       id: `${Date.now()}-${player.id}`,
       playerId: player.id,
@@ -455,8 +607,65 @@ io.on('connection', (socket) => {
       text: text.trim().slice(0, 200),
       correct: false,
       system: false,
+      drawerPenalty: penalty > 0 ? penalty : undefined,
       createdAt: Date.now()
     });
+  });
+
+  socket.on('bonus:stroke', ({ code, stroke }) => {
+    const room = getRoom(code);
+    if (!room || room.status !== 'bonus-drawing') return;
+    const player = getPlayerBySocket(room, socket.id);
+    if (!player) return;
+
+    const sub = room.bonusSubmissions?.get(player.id);
+    if (!sub || sub.submitted) return;
+
+    sub.strokes.push(stroke);
+    // Strokes stay private until the guessing phase — no broadcast to other players.
+  });
+
+  socket.on('bonus:submit', ({ code }) => {
+    const room = getRoom(code);
+    if (!room || room.status !== 'bonus-drawing') return;
+    const player = getPlayerBySocket(room, socket.id);
+    if (!player) return;
+
+    const sub = room.bonusSubmissions?.get(player.id);
+    if (!sub || sub.submitted) return;
+
+    sub.submitted = true;
+    sub.submittedAt = Date.now();
+    emitRoomState(code);
+
+    if (allBonusDrawingsSubmitted(room)) {
+      transitionBonusToGuessing(code);
+    }
+  });
+
+  socket.on('bonus:guess', ({ code, assignments }) => {
+    const room = getRoom(code);
+    if (!room || room.status !== 'bonus-guessing') return;
+    const player = getPlayerBySocket(room, socket.id);
+    if (!player || room.bonusGuesses.has(player.id)) return;
+    if (!assignments || typeof assignments !== 'object') return;
+
+    const cleaned = {};
+    for (const [anonId, guessedPlayerId] of Object.entries(assignments)) {
+      const actualOwner = resolveAnonId(room, anonId);
+      if (!actualOwner || !room.players.has(guessedPlayerId)) continue;
+      cleaned[anonId] = guessedPlayerId;
+    }
+
+    const expectedAnonIds = room.bonusDisplayOrder.map((_, i) => `drawing-${i}`);
+    if (expectedAnonIds.some((id) => !cleaned[id])) return;
+
+    room.bonusGuesses.set(player.id, cleaned);
+    emitRoomState(code);
+
+    if (allBonusGuessesSubmitted(room)) {
+      finishBonusRound(code);
+    }
   });
 
   socket.on('host:kick', ({ code, playerId }) => {

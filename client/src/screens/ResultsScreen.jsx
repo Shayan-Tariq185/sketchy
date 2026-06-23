@@ -130,6 +130,29 @@ export default function ResultsScreen() {
         </section>
       )}
 
+      {gameResult?.roastRecap?.highlights?.length > 0 ? (
+        <section className="paper-card lobby-section roast-section">
+          <div className="lobby-section-head">
+            <span style={{ fontSize: 15 }}>🔥</span>
+            <h3>Game Night Roast</h3>
+          </div>
+          <p className="lobby-hint" style={{ marginTop: -6, marginBottom: 14 }}>
+            The stats don&apos;t lie — here&apos;s what really happened.
+          </p>
+          <div className="roast-grid">
+            {gameResult.roastRecap.highlights.map((item, i) => (
+              <div key={i} className="roast-card">
+                <span className="roast-card__emoji">{item.emoji}</span>
+                <div className="roast-card__body">
+                  <p className="roast-card__title">{item.title}</p>
+                  <p className="roast-card__line">{item.line}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {/* ── Drawing replays ── */}
       {gameResult?.recaps?.length ? (
         <section className="paper-card lobby-section">
