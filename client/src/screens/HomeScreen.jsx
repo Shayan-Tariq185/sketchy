@@ -61,7 +61,7 @@ export default function HomeScreen() {
           Just your friends.
         </h1>
         <p className="home-subline">
-          No sign-up, no public matchmaking, no strangers. Make a room, send the code to your group chat, and start sketching.
+          No public matchmaking, no strangers. Make a room, send the code to your group chat, and start sketching.
         </p>
 
         <div className="home-badges">
@@ -108,7 +108,7 @@ export default function HomeScreen() {
               <input
                 id="name-create"
                 className="input-field"
-                placeholder="e.g. Shayan"
+                placeholder=""
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={18}
@@ -152,7 +152,7 @@ export default function HomeScreen() {
               <input
                 id="name-join"
                 className="input-field"
-                placeholder="e.g. Areeba"
+                placeholder=""
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={18}
