@@ -1,10 +1,82 @@
-import { LogOut, Palette, Play, Sparkles, Timer, Users, Mic, Gift } from 'lucide-react';
+import { useState } from 'react';
+import { LogOut, Palette, Play, Sparkles, Timer, Users, Mic, Gift, Swords } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import RoomCodeTicket from '../components/RoomCodeTicket';
 import PlayerList from '../components/PlayerList';
 
 const WORD_PACKS = ['Classic', 'Movies & Shows', 'Food & Drink', 'Tech & Internet'];
 const DIFFICULTIES = ['Easy', 'Medium', 'Hard'];
+const TEAM_COLORS = ['#FF5D5D', '#4D6BFE', '#3DDC97', '#FFC93C'];
+const TEAM_NAMES  = ['Team Red', 'Team Blue', 'Team Green', 'Team Gold'];
+
+function TeamAssigner({ room, teamCount, isHost, updateSettings }) {
+  // Local team assignments keyed by playerId -> teamIndex
+  const players = room.players.filter((p) => p.connected);
+  const teams = Array.from({ length: teamCount }, (_, i) => ({
+    id: `team-${i}`,
+    name: TEAM_NAMES[i],
+    color: TEAM_COLORS[i],
+    playerIds: players.filter((_, pi) => pi % teamCount === i).map((p) => p.id),
+  }));
+
+  // Build live assignments from current room.teams if available, else default
+  const [assignments, setAssignments] = useState(() => {
+    const map = {};
+    players.forEach((p, i) => { map[p.id] = i % teamCount; });
+    return map;
+  });
+
+  const teamGroups = Array.from({ length: teamCount }, (_, ti) =>
+    players.filter((p) => (assignments[p.id] ?? (players.indexOf(p) % teamCount)) === ti)
+  );
+
+  function movePlayer(pid, toTeam) {
+    const next = { ...assignments, [pid]: toTeam };
+    setAssignments(next);
+    // Push to server as teamAssignments
+    const serverAssignments = Array.from({ length: teamCount }, (_, ti) => ({
+      teamId: `team-${ti}`,
+      playerIds: players.filter((p) => (next[p.id] ?? (players.indexOf(p) % teamCount)) === ti).map((p) => p.id),
+    }));
+    updateSettings({ teamAssignments: serverAssignments });
+  }
+
+  return (
+    <div className="team-assigner">
+      {teamGroups.map((members, ti) => (
+        <div key={ti} className="team-col" style={{ '--team-color': TEAM_COLORS[ti] }}>
+          <div className="team-col-header" style={{ background: TEAM_COLORS[ti] }}>
+            {TEAM_NAMES[ti]}
+          </div>
+          <div className="team-col-body">
+            {members.map((p) => (
+              <div key={p.id} className="team-player-chip">
+                <span className="avatar-dot" style={{ background: p.color }}>{p.name[0]}</span>
+                <span className="team-player-name">{p.name}</span>
+                {isHost && (
+                  <div className="team-move-btns">
+                    {Array.from({ length: teamCount }, (_, tIdx) =>
+                      tIdx !== ti ? (
+                        <button
+                          key={tIdx}
+                          className="team-move-btn"
+                          style={{ background: TEAM_COLORS[tIdx] }}
+                          title={`Move to ${TEAM_NAMES[tIdx]}`}
+                          onClick={() => movePlayer(p.id, tIdx)}
+                        >→</button>
+                      ) : null
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+            {members.length === 0 && <p className="team-empty">No players</p>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function LobbyScreen() {
   const { room, playerId, leaveRoom, startGame, updateSettings } = useGame();
@@ -12,6 +84,8 @@ export default function LobbyScreen() {
   const isHost = !!me?.isHost;
   const canStart = room.players.filter((p) => p.connected).length >= 2;
   const canBonus = room.players.filter((p) => p.connected).length >= 5;
+  const teamMode = !!room.settings.teamMode;
+  const teamCount = room.settings.teamCount || 2;
 
   return (
     <main className="screen screen-narrow">
@@ -148,7 +222,52 @@ export default function LobbyScreen() {
         {!canBonus ? (
           <p className="lobby-hint">Need at least 5 players in the room to unlock the bonus round.</p>
         ) : null}
+
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            disabled={!isHost}
+            checked={teamMode}
+            onChange={(e) => updateSettings({ teamMode: e.target.checked })}
+          />
+          <span>
+            <Swords size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+            Team vs Team mode — opposing team guesses, same team cheers
+          </span>
+        </label>
+
+        {teamMode && (
+          <div className="team-count-row">
+            <span className="label-text">Number of teams:</span>
+            {[2, 3, 4].map((n) => (
+              <button
+                key={n}
+                disabled={!isHost}
+                className={`team-count-btn ${teamCount === n ? 'active' : ''}`}
+                onClick={() => updateSettings({ teamCount: n })}
+              >{n}</button>
+            ))}
+          </div>
+        )}
       </section>
+
+      {teamMode && (
+        <section className="paper-card lobby-section">
+          <div className="lobby-section-head">
+            <Swords size={16} />
+            <h3>Team assignments</h3>
+          </div>
+          <p className="lobby-hint" style={{ marginTop: -6, marginBottom: 14 }}>
+            {isHost ? 'Move players between teams using the arrows.' : 'The host is assigning teams.'}
+          </p>
+          <TeamAssigner
+            room={room}
+            teamCount={teamCount}
+            isHost={isHost}
+            updateSettings={updateSettings}
+          />
+        </section>
+      )}
 
       {isHost ? (
         <button className="btn btn-primary btn-block btn-lg" onClick={startGame} disabled={!canStart}>

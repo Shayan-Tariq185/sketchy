@@ -8,9 +8,11 @@ import {
   addPlayer,
   allNonDrawersGuessedCorrectly,
   applyDrawerChatPenalty,
+  applyTeamAssignments,
   assignBadges,
   buildDrawerOrder,
   buildRoastRecap,
+  buildTeamDrawerOrder,
   confirmWordChoice,
   connectedPlayers,
   createRoom,
@@ -18,8 +20,10 @@ import {
   deleteRoom,
   endRound,
   getPlayerBySocket,
+  getPlayerTeam,
   getRoom,
   guessHeat,
+  initTeams,
   isAtCapacity,
   isGameComplete,
   isRoomEmpty,
@@ -27,6 +31,7 @@ import {
   publicRoomState,
   reconnectPlayer,
   registerGuess,
+  registerGuessTeam,
   removePlayer,
   resetForReplay,
   revealHintLetter,
@@ -182,11 +187,13 @@ function finishGame(code) {
 
   const roastRecap = buildRoastRecap(room);
 
+  const finalState = publicRoomState(room);
   io.to(code).emit('game:finished', {
-    leaderboard: publicRoomState(room).players,
+    leaderboard: finalState.players,
     recaps: room.roundRecaps,
     playerBadges,
     roastRecap,
+    teams: finalState.teams,
   });
   emitRoomState(code);
 }
@@ -478,6 +485,15 @@ io.on('connection', (socket) => {
       const count = connectedPlayers(room).length;
       next.bonusRound = settings.bonusRound && count >= 5;
     }
+    if (typeof settings.teamMode === 'boolean') next.teamMode = settings.teamMode;
+    if (settings.teamCount) next.teamCount = Math.min(4, Math.max(2, Number(settings.teamCount)));
+
+    // Team assignment overrides from the lobby UI
+    if (settings.teamAssignments && next.teamMode) {
+      // We'll apply this after initTeams on game start; for now just persist intent
+      room._pendingTeamAssignments = settings.teamAssignments;
+    }
+
     room.settings = next;
     emitRoomState(code);
   });
@@ -489,9 +505,22 @@ io.on('connection', (socket) => {
     if (!player?.isHost) return;
     if (connectedPlayers(room).length < 2) return;
 
-    buildDrawerOrder(room);
     resetForReplay(room);
     room.status = 'lobby';
+
+    if (room.settings.teamMode) {
+      initTeams(room, room.settings.teamCount || 2);
+      // Apply any lobby-configured team assignments
+      if (room._pendingTeamAssignments) {
+        applyTeamAssignments(room, room._pendingTeamAssignments);
+        delete room._pendingTeamAssignments;
+      }
+      buildTeamDrawerOrder(room);
+    } else {
+      room.teams = null;
+      buildDrawerOrder(room);
+    }
+
     beginRound(code);
   });
 
@@ -560,7 +589,7 @@ io.on('connection', (socket) => {
     // Guard: already-correct players cannot keep guessing
     if (room.correctGuessersThisRound.has(player.id)) return;
 
-    const { entry, isCorrect, pointsAwarded, streakInfo } = registerGuess(room, player, text, drawerId);
+    const { entry, isCorrect, pointsAwarded, streakInfo } = registerGuessTeam(room, player, text, drawerId);
 
     if (isCorrect) {
       io.to(code).emit('chat:correct', {

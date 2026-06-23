@@ -30,7 +30,7 @@ function HeatBar({ heat }) {
 }
 
 export default function GuessFeed({ isDrawer, canGuess }) {
-  const { room, sendGuess, sendChat, heat, playerId } = useGame();
+  const { room, sendGuess, sendChat, heat, playerId, myTeam, drawerTeam, isMyTeamDrawing } = useGame();
   const [text, setText] = useState('');
   const feedRef = useRef(null);
 
@@ -67,12 +67,27 @@ export default function GuessFeed({ isDrawer, canGuess }) {
       : 'Say something...'
     : alreadyGuessed
     ? '🎉 You guessed it!'
+    : isMyTeamDrawing
+    ? '🛡️ Your team is drawing — cheer them on!'
     : canGuess
     ? 'Type your guess…'
     : 'Guessing closed';
 
   return (
     <div className={`guess-panel ${panelHeatClass}`}>
+      {/* Team banner — shown when team mode is active */}
+      {room.teams && myTeam && !isDrawer && (
+        <div className="team-banner" style={{ background: myTeam.color }}>
+          {myTeam.name}
+          {isMyTeamDrawing ? ' — your turn to cheer! 📣' : ' — guess the word! 🎯'}
+        </div>
+      )}
+      {room.teams && isDrawer && drawerTeam && (
+        <div className="team-banner" style={{ background: drawerTeam.color }}>
+          {drawerTeam.name} — your drawing!
+        </div>
+      )}
+
       <h3 className="guess-panel-title">{isDrawer ? '💬 Chat' : '🎯 Guesses'}</h3>
 
       <div className="guess-feed scroll-fade" ref={feedRef}>
@@ -84,14 +99,14 @@ export default function GuessFeed({ isDrawer, canGuess }) {
             return (
               <div
                 key={g.id}
-                className={`guess-bubble ${guessedRight ? 'is-correct' : ''} ${g.playerId === playerId ? 'is-mine' : ''}`}
+                className={`guess-bubble ${guessedRight ? 'is-correct' : ''} ${g.playerId === playerId ? 'is-mine' : ''} ${g.blockedByTeam ? 'is-blocked' : ''}`}
               >
                 <span className="guess-animal">{g.animal || ''}</span>
                 <span className="guess-author" style={{ color: g.color }}>
                   {g.playerName}
                 </span>
                 <span className="guess-text">
-                  {guessedRight ? '🎉 guessed the word!' : g.text}
+                  {guessedRight ? '🎉 guessed the word!' : g.blockedByTeam ? `${g.text} (same team)` : g.text}
                   {g.drawerPenalty ? ` (−${g.drawerPenalty} drawer pts)` : ''}
                 </span>
               </div>
@@ -101,6 +116,13 @@ export default function GuessFeed({ isDrawer, canGuess }) {
       </div>
 
       {!isDrawer && heat !== null ? <HeatBar heat={heat} /> : null}
+
+      {/* Team-blocked notice */}
+      {isMyTeamDrawing && !isDrawer && room.status === 'drawing' && (
+        <p className="guess-blocked-notice">
+          Your teammate is drawing — opponents are guessing. Cheer them on in chat!
+        </p>
+      )}
 
       <form className="guess-input-row" onSubmit={submit}>
         <input

@@ -12,10 +12,11 @@ import CorrectGuessFlash from '../components/CorrectGuessFlash';
 import BonusRoundOverlay from '../components/BonusRoundOverlay';
 
 export default function GameScreen() {
-  const { room, playerId, chooseWord, roundEndInfo, setRoundEndInfo, lastCorrect } = useGame();
+  const { room, playerId, chooseWord, roundEndInfo, setRoundEndInfo, lastCorrect, isMyTeamDrawing } = useGame();
   const isDrawer = room.drawerId === playerId;
   const canDraw = isDrawer && room.status === 'drawing';
-  const canGuess = !isDrawer && room.status === 'drawing';
+  // In team mode: members of the drawing team can't guess their own drawer's word
+  const canGuess = !isDrawer && room.status === 'drawing' && !isMyTeamDrawing;
   const roundKeyRef = useRef(null);
 
   const canvasState = useCanvasDrawing({ roomCode: room.code, canDraw });

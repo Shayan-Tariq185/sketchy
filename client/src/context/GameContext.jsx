@@ -402,6 +402,11 @@ export function GameProvider({ children }) {
     }
   }, [room.status]);
 
+  // Team helpers — derived from room state so always fresh
+  const myTeam = room.teams?.find((t) => t.playerIds?.includes(playerId)) || null;
+  const drawerTeam = room.teams?.find((t) => t.playerIds?.includes(room.drawerId)) || null;
+  const isMyTeamDrawing = !!(myTeam && drawerTeam && myTeam.id === drawerTeam.id);
+
   const value = {
     connected,
     connecting,
@@ -437,7 +442,11 @@ export function GameProvider({ children }) {
     sendGuess,
     sendChat,
     kickPlayer,
-    strokeListeners
+    strokeListeners,
+    // Team mode
+    myTeam,
+    drawerTeam,
+    isMyTeamDrawing,
   };
 
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;

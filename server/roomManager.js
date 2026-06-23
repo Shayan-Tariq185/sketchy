@@ -19,7 +19,9 @@ const ROUND_DEFAULTS = {
   difficulty: 'Medium',
   choiceMode: true,
   smartHints: false,  // narrator hints instead of letter reveals
-  bonusRound: false   // simultaneous draw + attribution round (5+ players)
+  bonusRound: false,  // simultaneous draw + attribution round (5+ players)
+  teamMode: false,    // team vs team mode
+  teamCount: 2,       // number of teams (2–4)
 };
 
 const AVATAR_PALETTE = ['#FF5D5D', '#3DDC97', '#FFC93C', '#4D6BFE', '#B26BFF', '#FF8FB1', '#33C9C9', '#FF9F4D'];
@@ -94,6 +96,7 @@ export function createRoom(hostSocketId, hostName) {
     drawerPrediction: null,
     // ---- Per-player stats map ----
     playerStats: new Map(),  // playerId -> stats object
+    teams: null,             // null in solo mode, array of team objects in team mode
     smartHintsGiven: new Set(),
     narratorHints: [],
     bonusWord: null,
@@ -818,6 +821,7 @@ export function resetForReplay(room) {
   room.hintGiven = false;
   for (const id of room.scores.keys()) room.scores.set(id, 0);
   for (const id of room.streaks.keys()) room.streaks.set(id, 0);
+  room.teams = null;
   room.smartHintsGiven = new Set();
   room.narratorHints = [];
   room.bonusWord = null;
@@ -853,6 +857,7 @@ export function publicRoomState(room) {
     // Show progress as turns within current round
     turnInRound: room.drawerOrder.length > 0 ? ((room.drawerIndex + 1) % room.drawerOrder.length) || room.drawerOrder.length : 0,
     playersInRound: playerCount,
+    teams: publicTeams(room),
   };
 
   if (room.status?.startsWith('bonus')) {
@@ -863,3 +868,197 @@ export function publicRoomState(room) {
 }
 
 export { rooms };
+// ===== TEAM MODE =====
+
+const TEAM_COLORS = ['#FF5D5D', '#4D6BFE', '#3DDC97', '#FFC93C'];
+const TEAM_NAMES  = ['Team Red', 'Team Blue', 'Team Green', 'Team Gold'];
+
+/**
+ * Initialise teams on the room. Called from index.js before buildDrawerOrder.
+ * @param {object} room
+ * @param {number} teamCount  2|3|4
+ */
+export function initTeams(room, teamCount = 2) {
+  const n = Math.min(4, Math.max(2, teamCount));
+  room.teams = Array.from({ length: n }, (_, i) => ({
+    id: `team-${i}`,
+    name: TEAM_NAMES[i],
+    color: TEAM_COLORS[i],
+    playerIds: [],
+    score: 0,
+  }));
+  // Auto-assign players round-robin by current order
+  const playerIds = [...room.players.keys()];
+  playerIds.forEach((pid, idx) => {
+    room.teams[idx % n].playerIds.push(pid);
+  });
+}
+
+/**
+ * Override team assignments sent from the client lobby.
+ * assignments = [ { teamId: 'team-0', playerIds: [...] }, ... ]
+ */
+export function applyTeamAssignments(room, assignments) {
+  if (!room.teams || !Array.isArray(assignments)) return;
+  for (const t of room.teams) t.playerIds = [];
+  for (const { teamId, playerIds } of assignments) {
+    const team = room.teams.find((t) => t.id === teamId);
+    if (!team) continue;
+    for (const pid of playerIds) {
+      if (room.players.has(pid)) team.playerIds.push(pid);
+    }
+  }
+}
+
+/**
+ * Returns the team object for a given playerId, or null in solo mode.
+ */
+export function getPlayerTeam(room, playerId) {
+  if (!room.teams) return null;
+  return room.teams.find((t) => t.playerIds.includes(playerId)) || null;
+}
+
+/**
+ * Build the drawer order so it alternates between teams each turn.
+ * Within each team, drawers rotate in join order.
+ * Must be called AFTER initTeams().
+ */
+export function buildTeamDrawerOrder(room) {
+  if (!room.teams) { buildDrawerOrder(room); return; }
+  // drawerCursor per team: which player in the team draws next
+  const cursors = room.teams.map(() => 0);
+  const order = [];
+  const totalSlots = room.teams.reduce((s, t) => s + t.playerIds.length, 0);
+  // interleave: team 0 picks, team 1 picks, team 0 picks, ...
+  // repeat until every player has had at least one slot
+  let lap = 0;
+  while (order.length < totalSlots) {
+    for (let ti = 0; ti < room.teams.length; ti++) {
+      const team = room.teams[ti];
+      const pidIdx = cursors[ti] % team.playerIds.length;
+      const pid = team.playerIds[pidIdx];
+      if (pid && !order.includes(pid)) {
+        order.push(pid);
+        cursors[ti]++;
+      }
+    }
+    lap++;
+    if (lap > totalSlots) break; // safety
+  }
+  room.drawerOrder = order;
+}
+
+/**
+ * Serialise teams for the public room state.
+ */
+export function publicTeams(room) {
+  if (!room.teams) return null;
+  return room.teams.map((t) => ({
+    id: t.id,
+    name: t.name,
+    color: t.color,
+    playerIds: t.playerIds,
+    score: t.score,
+  }));
+}
+
+/**
+ * Team-aware registerGuess wrapper.
+ * If teamMode is active:
+ *   - a player on the DRAWER'S team cannot score (they can still see the chat)
+ *   - points go to the TEAM score, not the individual
+ *   - drawer still earns their team-share bonus via team score
+ */
+export function registerGuessTeam(room, player, text, drawerId) {
+  if (!room.settings.teamMode || !room.teams) {
+    return registerGuess(room, player, text, drawerId);
+  }
+
+  const word = room.currentWord;
+  const isCorrect = normaliseGuess(text) === normaliseGuess(word || '');
+  const alreadyCorrect = room.correctGuessersThisRound.has(player.id);
+
+  // In team mode: members of the drawing team cannot score
+  const drawerTeam = getPlayerTeam(room, drawerId);
+  const guesserTeam = getPlayerTeam(room, player.id);
+  const isDrawerTeam = drawerTeam && guesserTeam && drawerTeam.id === guesserTeam.id;
+
+  if (alreadyCorrect || isDrawerTeam) {
+    // Still allow the message to appear in chat; just no points
+    if (isDrawerTeam && !alreadyCorrect) {
+      trackWrongGuess(room, player.id); // count as wasted guess for stats
+      const entry = {
+        id: nanoid(8),
+        playerId: player.id,
+        playerName: player.name,
+        color: player.color,
+        animal: player.animal,
+        text,
+        correct: false,
+        system: false,
+        blockedByTeam: true,
+        createdAt: Date.now(),
+      };
+      room.guesses.push(entry);
+      room.guesses = room.guesses.slice(-50);
+      return { entry, isCorrect: false, pointsAwarded: 0, streakInfo: null };
+    }
+    return { entry: null, isCorrect: false, pointsAwarded: 0, streakInfo: null };
+  }
+
+  // Standard guess logic (tweaked to credit team score)
+  const entry = {
+    id: nanoid(8),
+    playerId: player.id,
+    playerName: player.name,
+    color: player.color,
+    animal: player.animal,
+    text,
+    correct: isCorrect,
+    system: false,
+    createdAt: Date.now(),
+  };
+
+  let pointsAwarded = 0;
+  let streakInfo = null;
+
+  if (isCorrect) {
+    room.correctGuessersThisRound.add(player.id);
+    trackCorrectGuess(room, player.id);
+
+    const elapsedRatio = room.roundEndsAt
+      ? Math.min(1, Math.max(0, (room.roundEndsAt - Date.now()) / (room.settings.drawTime * 1000)))
+      : 0.5;
+
+    const speedBonus = Math.round(450 * elapsedRatio);
+    pointsAwarded = 50 + speedBonus;
+    if (room.correctGuessersThisRound.size === 1) pointsAwarded += 50;
+
+    const currentStreak = (room.streaks.get(player.id) || 0) + 1;
+    room.streaks.set(player.id, currentStreak);
+
+    // Credit team score (not individual player score)
+    if (guesserTeam) {
+      guesserTeam.score += pointsAwarded;
+    }
+    // Also mirror to individual so leaderboard shows something meaningful
+    room.scores.set(player.id, (room.scores.get(player.id) || 0) + pointsAwarded);
+
+    // Drawer team gets a share for enabling the correct guess
+    if (drawerId && drawerId !== player.id && drawerTeam) {
+      const drawerShare = Math.round(pointsAwarded / 2);
+      drawerTeam.score += drawerShare;
+      room.scores.set(drawerId, (room.scores.get(drawerId) || 0) + drawerShare);
+    }
+
+    streakInfo = { streak: currentStreak, pointsAwarded, multiplier: 1 };
+  } else {
+    room.streaks.set(player.id, 0);
+    trackWrongGuess(room, player.id);
+  }
+
+  room.guesses.push(entry);
+  room.guesses = room.guesses.slice(-50);
+
+  return { entry, isCorrect, pointsAwarded, streakInfo };
+}
