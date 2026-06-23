@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowRight, PencilLine, Users, Lock, Sparkles } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import DoodleHero from '../components/DoodleHero';
+import { getInviteRoomCode } from '../utils/roomLink';
 
 const NAME_SUGGESTIONS = ['Doodler', 'Sketch Lord', 'Scribbler', 'Pencil Pete'];
 
@@ -11,6 +12,16 @@ export default function HomeScreen() {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const [invited, setInvited] = useState(false);
+
+  useEffect(() => {
+    const inviteCode = getInviteRoomCode();
+    if (inviteCode) {
+      setCode(inviteCode);
+      setMode('join');
+      setInvited(true);
+    }
+  }, []);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -112,6 +123,11 @@ export default function HomeScreen() {
           </form>
         ) : (
           <form onSubmit={handleJoin} className="home-form">
+            {invited ? (
+              <p className="form-hint" style={{ marginBottom: 4 }}>
+                You were invited to room <strong>{code}</strong> — pick a name and join.
+              </p>
+            ) : null}
             <div>
               <label className="label-text" htmlFor="code-join">
                 Room code
@@ -121,9 +137,12 @@ export default function HomeScreen() {
                 className="input-field input-code"
                 placeholder="e.g. KX9PL"
                 value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                onChange={(e) => {
+                  setCode(e.target.value.toUpperCase());
+                  setInvited(false);
+                }}
                 maxLength={6}
-                autoFocus
+                autoFocus={!invited}
               />
             </div>
             <div>
@@ -137,6 +156,7 @@ export default function HomeScreen() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={18}
+                autoFocus={invited}
               />
             </div>
             {error ? <p className="form-error">{error}</p> : null}

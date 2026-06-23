@@ -116,6 +116,10 @@ export function useCanvasDrawing({ roomCode, canDraw }) {
 
     const dotSegment = { strokeId, points: [point], color: strokeColor, size: strokeSize };
     allStrokesRef.current.push(dotSegment);
+
+    const ctx = canvasRef.current?.getContext('2d');
+    if (ctx) paintStroke(ctx, dotSegment);
+
     socket.emit('canvas:stroke', { code: roomCode, stroke: dotSegment });
   };
 

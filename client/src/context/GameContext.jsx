@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { clearSession, loadSession, saveSession, socket } from '../socket';
+import { clearInviteRoomParam } from '../utils/roomLink';
 
 const GameContext = createContext(null);
 
@@ -261,6 +262,7 @@ export function GameProvider({ children }) {
           setPlayerName(name);
           setRoom((prev) => ({ ...prev, ...res.state }));
           saveSession({ code: res.code, playerId: res.playerId, name });
+          clearInviteRoomParam();
           setView('lobby');
           setError('');
         } else {

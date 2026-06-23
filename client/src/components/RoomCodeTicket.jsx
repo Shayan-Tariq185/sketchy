@@ -1,24 +1,34 @@
 import { useState } from 'react';
 import { Check, Copy, Share2 } from 'lucide-react';
+import { buildRoomInviteUrl } from '../utils/roomLink';
 
 export default function RoomCodeTicket({ code }) {
   const [copied, setCopied] = useState(false);
+  const inviteUrl = buildRoomInviteUrl(code);
+
+  const markCopied = () => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  };
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      await navigator.clipboard.writeText(inviteUrl);
+      markCopied();
     } catch {
       /* clipboard unavailable */
     }
   };
 
   const handleShare = async () => {
-    const text = `Join my Sketchy room! Code: ${code}\n${window.location.origin}`;
+    const text = `Join my Sketchy room! Tap the link — no code to type.`;
     if (navigator.share) {
       try {
-        await navigator.share({ title: 'Join my Sketchy room', text });
+        await navigator.share({
+          title: 'Join my Sketchy room',
+          text,
+          url: inviteUrl
+        });
         return;
       } catch {
         /* user cancelled, fall through to copy */
@@ -36,13 +46,15 @@ export default function RoomCodeTicket({ code }) {
             <span key={i}>{ch}</span>
           ))}
         </div>
-        <p className="ticket-note">Share this code so your friends can join. No public matchmaking, ever.</p>
+        <p className="ticket-note">
+          Share the invite link — friends land in this room automatically. No public matchmaking, ever.
+        </p>
       </div>
       <div className="ticket-perforation" aria-hidden="true" />
       <div className="ticket-actions">
         <button className="btn btn-sm btn-ghost" onClick={handleCopy}>
           {copied ? <Check size={14} /> : <Copy size={14} />}
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? 'Link copied' : 'Copy link'}
         </button>
         <button className="btn btn-sm btn-pencil" onClick={handleShare}>
           <Share2 size={14} /> Share
