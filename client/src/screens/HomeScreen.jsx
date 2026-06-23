@@ -135,7 +135,7 @@ export default function HomeScreen() {
               <input
                 id="code-join"
                 className="input-field input-code"
-                placeholder="e.g. KX9PL"
+                placeholder=""
                 value={code}
                 onChange={(e) => {
                   setCode(e.target.value.toUpperCase());
