@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LogOut, Palette, Play, Sparkles, Timer, Users, Mic, Gift, Swords } from 'lucide-react';
+import { LogOut, Palette, Play, Sparkles, Timer, Users, Lightbulb, Gift, Swords } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import RoomCodeTicket from '../components/RoomCodeTicket';
 import PlayerList from '../components/PlayerList';
@@ -198,12 +198,12 @@ export default function LobbyScreen() {
           <input
             type="checkbox"
             disabled={!isHost}
-            checked={!!room.settings.smartHints}
-            onChange={(e) => updateSettings({ smartHints: e.target.checked })}
+            checked={!!room.settings.hints}
+            onChange={(e) => updateSettings({ hints: e.target.checked })}
           />
           <span>
-            <Mic size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-            Smart narrator hints (playful clues instead of letter reveals)
+            <Lightbulb size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+            Letter hints (reveal random letters as time runs low)
           </span>
         </label>
 

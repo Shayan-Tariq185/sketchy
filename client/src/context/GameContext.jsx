@@ -8,7 +8,7 @@ const initialRoomState = {
   code: '',
   hostId: '',
   status: 'idle', // idle | lobby | choosing | drawing | round-end | finished
-  settings: { maxRounds: 6, drawTime: 80, wordPack: 'Classic', difficulty: 'Medium', choiceMode: true, smartHints: false, bonusRound: false },
+  settings: { maxRounds: 6, drawTime: 80, wordPack: 'Classic', difficulty: 'Medium', choiceMode: true, hints: false, bonusRound: false },
   round: 0,
   maxRounds: 6,
   drawerId: null,
@@ -22,7 +22,6 @@ const initialRoomState = {
   correctGuessers: [],
   hintGiven: false,
   revealedCount: 0,
-  narratorHints: [],
   bonusWord: '',
   bonusTimeLeft: 0,
   bonusDrawings: [],
@@ -207,15 +206,6 @@ export function GameProvider({ children }) {
       pushToast('💡 A letter has been revealed!');
     }
 
-    function onHintNarrator({ text }) {
-      setRoom((prev) => ({
-        ...prev,
-        hintGiven: true,
-        narratorHints: [...(prev.narratorHints || []), text]
-      }));
-      pushToast(text);
-    }
-
     function onBonusWord({ word }) {
       setBonusWord(word);
     }
@@ -245,7 +235,6 @@ export function GameProvider({ children }) {
     socket.on('player:kicked', onPlayerKicked);
     socket.on('chat:message', onChatMessage);
     socket.on('hint:letter', onHintLetter);
-    socket.on('hint:narrator', onHintNarrator);
     socket.on('bonus:word', onBonusWord);
     socket.on('bonus:tick', onBonusTick);
     socket.on('bonus:results', onBonusResults);
@@ -267,7 +256,6 @@ export function GameProvider({ children }) {
       socket.off('player:kicked', onPlayerKicked);
       socket.off('chat:message', onChatMessage);
       socket.off('hint:letter', onHintLetter);
-      socket.off('hint:narrator', onHintNarrator);
       socket.off('bonus:word', onBonusWord);
       socket.off('bonus:tick', onBonusTick);
       socket.off('bonus:results', onBonusResults);

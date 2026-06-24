@@ -101,7 +101,7 @@ export default function HowToPlayOverlay({ onClose }) {
                 <Sparkles size={15} /> Extra modes
               </h3>
               <p>
-                Hosts can also turn on smart narrator hints (playful clues instead of letter reveals) and team
+                Hosts can also turn on letter hints (random letters appear as time runs low) and team
                 mode (two teams take turns guessing, with teammates cheering instead of competing against each
                 other) from the lobby settings.
               </p>

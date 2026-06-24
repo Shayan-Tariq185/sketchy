@@ -55,7 +55,6 @@ import {
   startBonusDrawingPhase,
   startBonusGuessingPhase,
 } from './bonusRound.js';
-import { generateSmartHint } from './smartHints.js';
 
 const PORT = process.env.PORT || 4000;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || '*';
@@ -115,45 +114,33 @@ function clearRoomTimer(room) {
 
 function maybeTriggerHints(code, room) {
   if (!room.roundEndsAt || room.status !== 'drawing') return;
+  if (!room.settings.hints) return; // hints turned off for this room
 
   const totalMs = room.settings.drawTime * 1000;
   const elapsed = Date.now() - (room.roundEndsAt - totalMs);
   const ratio = elapsed / totalMs;
 
-  if (room.settings.smartHints) {
-    const stages = [
-      { at: 0.5, stage: 0 },
-      { at: 0.7, stage: 1 },
-      { at: 0.85, stage: 2 }
-    ];
-    for (const { at, stage } of stages) {
-      if (ratio >= at && !room.smartHintsGiven.has(stage)) {
-        room.smartHintsGiven.add(stage);
-        const text = generateSmartHint(
-          room.currentWord,
-          room.settings.wordPack,
-          room.settings.difficulty,
-          stage
-        );
-        room.narratorHints = [...(room.narratorHints || []), text];
-        room.hintGiven = true;
-        io.to(code).emit('hint:narrator', { text, stage });
+  // Reveal a letter (random position) at 2/3 and 5/6 through the round.
+  // e.g. a 60s round → 1st letter at 20s left, 2nd letter at 10s left.
+  const schedule = [2 / 3, 5 / 6];
+  const letterCount = (room.currentWord || '').replace(/\s/g, '').length;
+  const maxReveals = Math.max(1, Math.floor(letterCount / 2)); // never expose more than half
+
+  for (let i = 0; i < schedule.length; i++) {
+    if (
+      ratio >= schedule[i] &&
+      room.revealedLetterIndices.length === i &&
+      room.revealedLetterIndices.length < maxReveals
+    ) {
+      const revealed = revealHintLetter(room);
+      if (revealed) {
+        const state = publicRoomState(room);
+        io.to(code).emit('hint:letter', {
+          maskedWord: state.maskedWord,
+          revealedCount: state.revealedCount
+        });
         emitRoomState(code);
       }
-    }
-    return;
-  }
-
-  // Classic letter hint at 50%
-  if (!room.hintGiven && ratio >= 0.5) {
-    const revealed = revealHintLetter(room);
-    if (revealed) {
-      const state = publicRoomState(room);
-      io.to(code).emit('hint:letter', {
-        maskedWord: state.maskedWord,
-        revealedCount: state.revealedCount
-      });
-      emitRoomState(code);
     }
   }
 }
@@ -502,7 +489,7 @@ io.on('connection', (socket) => {
     if (settings.wordPack) next.wordPack = settings.wordPack;
     if (settings.difficulty) next.difficulty = settings.difficulty;
     if (typeof settings.choiceMode === 'boolean') next.choiceMode = settings.choiceMode;
-    if (typeof settings.smartHints === 'boolean') next.smartHints = settings.smartHints;
+    if (typeof settings.hints === 'boolean') next.hints = settings.hints;
     if (typeof settings.bonusRound === 'boolean') {
       const count = connectedPlayers(room).length;
       next.bonusRound = settings.bonusRound && count >= 5;

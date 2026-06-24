@@ -18,7 +18,7 @@ const ROUND_DEFAULTS = {
   wordPack: 'Classic',
   difficulty: 'Medium',
   choiceMode: true,
-  smartHints: false,  // narrator hints instead of letter reveals
+  hints: false,       // reveal random letters on a timer
   bonusRound: false,  // simultaneous draw + attribution round (5+ players)
   teamMode: false,    // team vs team mode
   teamCount: 2,       // number of teams (2–4)
@@ -97,8 +97,6 @@ export function createRoom(hostSocketId, hostName) {
     // ---- Per-player stats map ----
     playerStats: new Map(),  // playerId -> stats object
     teams: null,             // null in solo mode, array of team objects in team mode
-    smartHintsGiven: new Set(),
-    narratorHints: [],
     bonusWord: null,
     bonusSubmissions: null,
     bonusGuesses: null,
@@ -279,8 +277,6 @@ export function startRound(room) {
   room.revealedLetterIndices = [];
   room.hintGiven = false;
   room.drawerPrediction = null;
-  room.smartHintsGiven = new Set();
-  room.narratorHints = [];
 
   // Reset per-turn transient drawer stats
   if (drawerId) {
@@ -832,8 +828,6 @@ export function resetForReplay(room) {
   for (const id of room.scores.keys()) room.scores.set(id, 0);
   for (const id of room.streaks.keys()) room.streaks.set(id, 0);
   room.teams = null;
-  room.smartHintsGiven = new Set();
-  room.narratorHints = [];
   room.bonusWord = null;
   room.bonusSubmissions = null;
   room.bonusGuesses = null;
@@ -863,7 +857,6 @@ export function publicRoomState(room) {
     correctGuessers: [...room.correctGuessersThisRound],
     hintGiven: room.hintGiven,
     revealedCount: room.revealedLetterIndices.length,
-    narratorHints: room.narratorHints || [],
     // Show progress as turns within current round
     turnInRound: room.drawerOrder.length > 0 ? ((room.drawerIndex + 1) % room.drawerOrder.length) || room.drawerOrder.length : 0,
     playersInRound: playerCount,

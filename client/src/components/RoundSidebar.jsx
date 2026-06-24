@@ -46,8 +46,8 @@ export default function RoundSidebar({ isDrawer }) {
   const urgent = room.timeLeft <= 10;
   const timeDisplay = Math.ceil(room.timeLeft);
 
-  const halfTime = room.drawTime ? room.drawTime * 0.5 : 40;
-  const timeUntilHint = room.timeLeft > halfTime ? Math.ceil(room.timeLeft - halfTime) : 0;
+  const firstHintAt = room.drawTime ? room.drawTime / 3 : 27; // 1st letter at ~2/3 elapsed
+  const timeUntilHint = room.timeLeft > firstHintAt ? Math.ceil(room.timeLeft - firstHintAt) : 0;
 
   return (
     <aside className="round-sidebar">
@@ -79,27 +79,11 @@ export default function RoundSidebar({ isDrawer }) {
       </div>
 
       {/* Hint status */}
-      {!isDrawer && room.status === 'drawing' ? (
+      {!isDrawer && room.status === 'drawing' && room.settings.hints ? (
         <div className={`paper-card sidebar-block hint-block ${room.hintGiven ? 'hint-active' : ''}`}>
           <div className="hint-row">
             <Lightbulb size={14} />
-            {room.settings.smartHints ? (
-              room.narratorHints?.length ? (
-                <div className="narrator-hints">
-                  {room.narratorHints.map((hint, i) => (
-                    <p key={i} className="hint-text hint-revealed narrator-line">
-                      {hint}
-                    </p>
-                  ))}
-                </div>
-              ) : timeUntilHint > 0 ? (
-                <span className="hint-text">
-                  Sketchy hints in <strong>{timeUntilHint}s</strong>
-                </span>
-              ) : (
-                <span className="hint-text">A hint is coming…</span>
-              )
-            ) : room.hintGiven ? (
+            {room.hintGiven ? (
               <span className="hint-text hint-revealed">
                 💡 {room.revealedCount} letter{room.revealedCount !== 1 ? 's' : ''} revealed!
               </span>
