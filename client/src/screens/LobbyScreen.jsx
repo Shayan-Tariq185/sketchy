@@ -4,7 +4,7 @@ import { useGame } from '../context/GameContext';
 import RoomCodeTicket from '../components/RoomCodeTicket';
 import PlayerList from '../components/PlayerList';
 
-const WORD_PACKS = ['Classic', 'Movies & Shows', 'Food & Drink', 'Tech & Internet'];
+const WORD_PACKS = ['Classic', 'Pakistani Edition', 'Tech & Internet', 'Sports', 'Geography'];
 const DIFFICULTIES = ['Easy', 'Medium', 'Hard'];
 const TEAM_COLORS = ['#FF5D5D', '#4D6BFE', '#3DDC97', '#FFC93C'];
 const TEAM_NAMES  = ['Team Red', 'Team Blue', 'Team Green', 'Team Gold'];
