@@ -81,7 +81,7 @@ function ReplayCanvas({ strokes }) {
 
 export default function RoundEndOverlay({ info, onDone }) {
   if (!info) return null;
-const { result, word, strokes, isStartingNewRound, isGameEnding, isGoingToBonusRound } = info;
+  const { result, word, strokes, isStartingNewRound, isGameEnding, isGoingToBonusRound } = info;
 
   const headline =
     result?.type === 'all-correct'

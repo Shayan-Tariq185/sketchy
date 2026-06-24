@@ -103,6 +103,7 @@ export function createRoom(hostSocketId, hostName) {
     bonusGuesses: null,
     bonusDisplayOrder: null,
     bonusEndsAt: null,
+    lastGameResult: null,    // badges/roast/leaderboard snapshot from the most recent finishGame(), for rejoin
   };
 
   addPlayer(room, hostSocketId, hostName, hostId, true);
@@ -415,11 +416,14 @@ export function assignBadges(room) {
   if (drew.length > 0) {
     const min = Math.min(...drew.map((s) => s.totalStrokes));
     const candidates = drew.filter((s) => s.totalStrokes === min);
+    const runnerUp = drew.length > candidates.length
+      ? Math.min(...drew.filter((s) => s.totalStrokes !== min).map((s) => s.totalStrokes))
+      : null;
     categoryWinners.push({
       playerId: candidates[0].id,
       badge: 'The Minimalist',
       description: `Only ${min} stroke${min === 1 ? '' : 's'} — efficiency is an art form.`,
-      priority: drew.length > 1 ? (drew[1].totalStrokes - min) / (drew[1].totalStrokes || 1) : 1,
+      priority: runnerUp !== null ? (runnerUp - min) / (runnerUp || 1) : 1,
     });
   }
 
@@ -441,11 +445,14 @@ export function assignBadges(room) {
     const minMs = Math.min(...guessers.map((s) => s.fastestGuessMs));
     const candidates = guessers.filter((s) => s.fastestGuessMs === minMs);
     const secs = (minMs / 1000).toFixed(1);
+    const runnerUpMs = guessers.length > candidates.length
+      ? Math.min(...guessers.filter((s) => s.fastestGuessMs !== minMs).map((s) => s.fastestGuessMs))
+      : null;
     categoryWinners.push({
       playerId: candidates[0].id,
       badge: 'The Speedrunner',
       description: `Guessed correctly in ${secs}s — blink and you'd miss it.`,
-      priority: guessers.length > 1 ? (guessers[1].fastestGuessMs - minMs) / (guessers[1].fastestGuessMs || 1) : 1,
+      priority: runnerUpMs !== null ? (runnerUpMs - minMs) / (runnerUpMs || 1) : 1,
     });
   }
 
@@ -455,13 +462,14 @@ export function assignBadges(room) {
     const maxThink = Math.max(...drewWithThink.map((s) => s.avgThinkMs));
     const candidates = drewWithThink.filter((s) => s.avgThinkMs === maxThink);
     const secs = (maxThink / 1000).toFixed(1);
+    const runnerUp = drewWithThink.length > candidates.length
+      ? Math.max(...drewWithThink.filter((s) => s.avgThinkMs !== maxThink).map((s) => s.avgThinkMs))
+      : null;
     categoryWinners.push({
       playerId: candidates[0].id,
       badge: 'The Overthinker',
       description: `Averaged ${secs}s before the first stroke — great things take time.`,
-      priority: drewWithThink.length > 1
-        ? (maxThink - drewWithThink.filter((s) => s.avgThinkMs !== maxThink)[0]?.avgThinkMs || 0) / maxThink
-        : 1,
+      priority: runnerUp !== null ? (maxThink - runnerUp) / maxThink : 1,
     });
   }
 
@@ -834,6 +842,7 @@ export function resetForReplay(room) {
   room.bonusGuesses = null;
   room.bonusDisplayOrder = null;
   room.bonusEndsAt = null;
+  room.lastGameResult = null;
   // Reset stats too
   for (const id of room.playerStats.keys()) room.playerStats.set(id, blankStats());
 }

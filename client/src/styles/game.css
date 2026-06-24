@@ -817,6 +817,27 @@
   }
 }
 
+/* Below tablet width, stack drawing-first: the canvas is the thing people
+ * actually came to look at, so it shouldn't be buried under the sidebar's
+ * round/timer/leaderboard cards on a phone screen. DOM order stays
+ * sidebar -> canvas -> guesses for a sane reading/tab order; only the
+ * visual order changes via CSS `order`. */
+@media (max-width: 720px) {
+  .game-grid {
+    display: flex;
+    flex-direction: column;
+  }
+  .game-grid > .canvas-panel {
+    order: -1;
+  }
+  .game-grid > .round-sidebar {
+    order: 0;
+  }
+  .game-grid > .guess-panel {
+    order: 1;
+  }
+}
+
 /* ---------- Bonus round ---------- */
 .bonus-overlay .bonus-card {
   max-width: 960px;

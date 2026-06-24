@@ -194,13 +194,21 @@ function finishGame(code) {
   const roastRecap = buildRoastRecap(room);
 
   const finalState = publicRoomState(room);
-  io.to(code).emit('game:finished', {
+  const finishedPayload = {
     leaderboard: finalState.players,
     recaps: room.roundRecaps,
     playerBadges,
     roastRecap,
     teams: finalState.teams,
-  });
+  };
+
+  // Stash this so a player who refreshes/reconnects while still on the
+  // results screen gets the same badges/roast back via room:rejoin instead
+  // of landing on an empty results page (these are otherwise only ever
+  // computed once, here, and would be lost the moment this function returns).
+  room.lastGameResult = finishedPayload;
+
+  io.to(code).emit('game:finished', finishedPayload);
   emitRoomState(code);
 }
 
@@ -475,6 +483,12 @@ io.on('connection', (socket) => {
     if (room.strokes.length) {
       socket.emit('canvas:bulk', { strokes: room.strokes });
     }
+    // Re-deliver the badges/roast/leaderboard if rejoining a game that
+    // already finished (e.g. a page refresh on the results screen) — this
+    // data only exists transiently when the game first finishes otherwise.
+    if (room.status === 'finished' && room.lastGameResult) {
+      socket.emit('game:finished', room.lastGameResult);
+    }
     emitRoomState(room.code);
   });
 
@@ -591,8 +605,17 @@ io.on('connection', (socket) => {
     const player = getPlayerBySocket(room, socket.id);
     const drawerId = currentDrawerId(room);
     if (!player || player.id !== drawerId) return;
+    if (room.strokes.length === 0) return;
 
-    room.strokes.pop();
+    // room.strokes is a flat log of small segments (each ~2 points) that
+    // share a strokeId per physical pen-down-to-pen-up line. A single .pop()
+    // only removed the last segment, leaving most of the line still drawn.
+    // Remove every segment belonging to the most recent strokeId instead.
+    const lastStrokeId = room.strokes[room.strokes.length - 1].strokeId;
+    room.strokes = lastStrokeId
+      ? room.strokes.filter((s) => s.strokeId !== lastStrokeId)
+      : room.strokes.slice(0, -1); // safety net for any legacy segment with no id
+
     io.to(code).emit('canvas:bulk', { strokes: room.strokes });
   });
 
@@ -625,10 +648,16 @@ io.on('connection', (socket) => {
         finishRound(code, { type: 'all-correct', word: room.currentWord });
       }
     } else if (entry) {
-      // Heat hint goes only to the guesser, never reveals the word
-      const heat = guessHeat(text, room.currentWord || '');
       io.to(code).emit('chat:message', entry);
-      socket.emit('chat:heat', { heat });
+      // Heat hint goes only to the guesser, never reveals the word — except
+      // when their guess was blocked for being on the drawer's team. In that
+      // case withhold it too, otherwise an exact/near-exact guess still
+      // leaks "you had it" via a 100% heat reading even though it scored
+      // nothing, defeating the point of blocking same-team guesses.
+      if (!entry.blockedByTeam) {
+        const heat = guessHeat(text, room.currentWord || '');
+        socket.emit('chat:heat', { heat });
+      }
     }
   });
 

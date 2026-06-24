@@ -119,6 +119,8 @@ export default function HomeScreen() {
                 onChange={(e) => setName(e.target.value)}
                 maxLength={18}
                 autoFocus
+                autoComplete="off"
+                autoCapitalize="words"
               />
             </div>
             {error ? <p className="form-error">{error}</p> : null}
@@ -149,6 +151,10 @@ export default function HomeScreen() {
                 }}
                 maxLength={6}
                 autoFocus={!invited}
+                autoComplete="off"
+                autoCapitalize="characters"
+                inputMode="text"
+                spellCheck={false}
               />
             </div>
             <div>
@@ -163,6 +169,8 @@ export default function HomeScreen() {
                 onChange={(e) => setName(e.target.value)}
                 maxLength={18}
                 autoFocus={invited}
+                autoComplete="off"
+                autoCapitalize="words"
               />
             </div>
             {error ? <p className="form-error">{error}</p> : null}
