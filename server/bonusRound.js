@@ -68,11 +68,24 @@ export function allBonusGuessesSubmitted(room) {
   return players.every((p) => room.bonusGuesses.has(p.id));
 }
 
-export function getAnonymousDrawings(room) {
-  return room.bonusDisplayOrder.map((playerId, index) => ({
-    anonId: `drawing-${index}`,
+export function getAnonymousDrawings(room, forPlayerId = null) {
+  // If a playerId is given, shuffle the display order uniquely for that player
+  // so the order is different for everyone (harder to guess by position)
+  let order = room.bonusDisplayOrder;
+  if (forPlayerId) {
+    // Deterministic per-player shuffle using playerId as seed offset
+    const seed = forPlayerId.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+    order = [...room.bonusDisplayOrder];
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = (seed * (i + 1) * 2654435761) % (i + 1);
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+  }
+  return order.map((playerId, index) => ({
+    anonId: `drawing-${room.bonusDisplayOrder.indexOf(playerId)}`, // keep anonId stable
     label: String.fromCharCode(65 + index),
-    strokes: room.bonusSubmissions.get(playerId)?.strokes || []
+    strokes: room.bonusSubmissions.get(playerId)?.strokes || [],
+    isOwn: playerId === forPlayerId,
   }));
 }
 
@@ -118,7 +131,7 @@ export function scoreBonusRound(room) {
       voterId: voter.id,
       voterName: voter.name,
       correct,
-      total: room.bonusDisplayOrder.length,
+      total: room.bonusDisplayOrder.length - 1, // excludes the voter's own drawing, which they can't vote on
       points,
       details
     });
@@ -135,7 +148,7 @@ export function clearBonusState(room) {
   room.bonusEndsAt = null;
 }
 
-export function bonusPublicSlice(room) {
+export function bonusPublicSlice(room, forPlayerId = null) {
   if (!room.status?.startsWith('bonus')) return {};
 
   const players = connectedPlayers(room);
@@ -150,8 +163,13 @@ export function bonusPublicSlice(room) {
   };
 
   if (room.status === 'bonus-guessing') {
-    base.bonusDrawings = getAnonymousDrawings(room);
+    base.bonusDrawings = getAnonymousDrawings(room, forPlayerId);
   }
 
   return base;
+}
+
+/** Same as bonusPublicSlice but always personalised — used for per-socket emit */
+export function bonusPublicSliceForPlayer(room, playerId) {
+  return bonusPublicSlice(room, playerId);
 }

@@ -44,6 +44,7 @@ import {
 import {
   allBonusDrawingsSubmitted,
   allBonusGuessesSubmitted,
+  bonusPublicSliceForPlayer,
   bonusTimeLeftSeconds,
   canRunBonusRound,
   clearBonusState,
@@ -79,6 +80,22 @@ const EMPTY_ROOM_GRACE_MS = 5 * 60 * 1000;
 function emitRoomState(code) {
   const room = getRoom(code);
   if (!room) return;
+
+  // During bonus-guessing each player gets their own shuffled drawing order
+  // (includes their own drawing so they can see it, but they can't vote on it)
+  if (room.status === 'bonus-guessing') {
+    const baseState = publicRoomState(room);
+    for (const [playerId, player] of room.players.entries()) {
+      if (!player.socketId || !player.connected) continue;
+      const personalState = {
+        ...baseState,
+        bonusDrawings: bonusPublicSliceForPlayer(room, playerId).bonusDrawings,
+      };
+      io.to(player.socketId).emit('room:state', personalState);
+    }
+    return;
+  }
+
   io.to(code).emit('room:state', publicRoomState(room));
 }
 
@@ -686,7 +703,15 @@ io.on('connection', (socket) => {
       cleaned[anonId] = guessedPlayerId;
     }
 
-    const expectedAnonIds = room.bonusDisplayOrder.map((_, i) => `drawing-${i}`);
+    // The client never sends an assignment for the player's own drawing
+    // (it's shown but not selectable in the UI), so the expected set of
+    // anonIds must exclude whichever slot belongs to this submitter --
+    // otherwise this check always fails and the submission is silently
+    // dropped before ever reaching room.bonusGuesses.set(...).
+    const ownAnonId = `drawing-${room.bonusDisplayOrder.indexOf(player.id)}`;
+    const expectedAnonIds = room.bonusDisplayOrder
+      .map((_, i) => `drawing-${i}`)
+      .filter((id) => id !== ownAnonId);
     if (expectedAnonIds.some((id) => !cleaned[id])) return;
 
     room.bonusGuesses.set(player.id, cleaned);

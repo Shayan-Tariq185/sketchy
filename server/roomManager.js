@@ -623,16 +623,19 @@ export function applyDrawerChatPenalty(room, drawerId) {
 
 export function maskedWord(word, revealedIndices = []) {
   if (!word) return '';
-  const chars = word.split('');
+  const wordParts = word.split(' '); // split into actual words first
   let letterIdx = 0;
-  return chars
-    .map((ch) => {
-      if (ch === ' ') return '   ';
+
+  const renderedParts = wordParts.map((part) => {
+    const letters = part.split('').map((ch) => {
       const reveal = revealedIndices.includes(letterIdx);
       letterIdx++;
       return reveal ? ch : '_';
-    })
-    .join(' ');
+    });
+    return letters.join(' '); // single-space between letters within a word
+  });
+
+  return renderedParts.join('   '); // exactly one triple-space between words
 }
 
 export function timeLeftSeconds(room) {
