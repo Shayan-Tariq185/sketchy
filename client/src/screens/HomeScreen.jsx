@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, PencilLine, Users, Lock, Sparkles } from 'lucide-react';
+import { ArrowRight, PencilLine, Users, Lock, Sparkles, HelpCircle } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import DoodleHero from '../components/DoodleHero';
+import HowToPlayOverlay from '../components/HowToPlayOverlay';
 import { getInviteRoomCode } from '../utils/roomLink';
 
 const NAME_SUGGESTIONS = ['Doodler', 'Sketch Lord', 'Scribbler', 'Pencil Pete'];
@@ -13,6 +14,7 @@ export default function HomeScreen() {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [invited, setInvited] = useState(false);
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
 
   useEffect(() => {
     const inviteCode = getInviteRoomCode();
@@ -75,6 +77,10 @@ export default function HomeScreen() {
             <Sparkles size={13} /> Streaks &amp; replays
           </span>
         </div>
+
+        <button className="howto-link" onClick={() => setShowHowToPlay(true)}>
+          <HelpCircle size={14} /> How to play &amp; scoring
+        </button>
       </div>
 
       <div className="paper-card home-card">
@@ -168,6 +174,8 @@ export default function HomeScreen() {
       </div>
 
       <footer className="home-footer">Built for game nights with people you actually know.</footer>
+
+      {showHowToPlay ? <HowToPlayOverlay onClose={() => setShowHowToPlay(false)} /> : null}
     </main>
   );
 }

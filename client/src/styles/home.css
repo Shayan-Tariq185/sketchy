@@ -32,6 +32,26 @@
   justify-content: center;
 }
 
+.howto-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  background: transparent;
+  border: none;
+  color: var(--blue-dark);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  transition: text-decoration-color 0.15s ease;
+}
+
+.howto-link:hover {
+  text-decoration-color: var(--blue-dark);
+}
+
 .home-card {
   width: 100%;
   max-width: 440px;
@@ -105,5 +125,93 @@
 @media (max-width: 480px) {
   .home-headline {
     font-size: 30px;
+  }
+}
+
+/* ---------- How to Play modal ---------- */
+.howto-card {
+  max-width: 560px;
+  width: 100%;
+  max-height: 86vh;
+  padding: 4px;
+  position: relative;
+}
+
+.howto-card .wobble-card-inner {
+  padding: 30px 28px 26px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(86vh - 8px);
+}
+
+.howto-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  background: var(--paper-dim);
+  border: 1.5px solid var(--line);
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-soft);
+}
+
+.howto-close:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.howto-title {
+  font-size: 24px;
+  margin: 8px 0 16px;
+}
+
+.howto-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-bottom: 18px;
+  padding-right: 6px;
+}
+
+.howto-section {
+  margin-bottom: 18px;
+}
+
+.howto-section:last-child {
+  margin-bottom: 0;
+}
+
+.howto-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+  margin-bottom: 6px;
+  color: var(--ink);
+}
+
+.howto-section p {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  margin-bottom: 8px;
+}
+
+.howto-section p:last-child {
+  margin-bottom: 0;
+}
+
+.howto-section strong {
+  color: var(--coral-dark);
+}
+
+@media (max-width: 480px) {
+  .howto-card .wobble-card-inner {
+    padding: 24px 18px 20px;
   }
 }
