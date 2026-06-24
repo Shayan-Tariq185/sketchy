@@ -20,9 +20,10 @@ const ROUND_DEFAULTS = {
   choiceMode: true,
   hints: false,       // reveal random letters on a timer
   bonusRound: false,  // simultaneous draw + attribution round (5+ players)
-  teamMode: false,    // team vs team mode
-  teamCount: 2,       // number of teams (2–4)
+  teamMode: false,    // team vs team mode (exactly 2 teams, 4+ players required)
 };
+
+export const MIN_TEAM_MODE_PLAYERS = 4;
 
 const AVATAR_PALETTE = ['#FF5D5D', '#3DDC97', '#FFC93C', '#4D6BFE', '#B26BFF', '#FF8FB1', '#33C9C9', '#FF9F4D'];
 const ANIMAL_AVATARS = ['🦊', '🐻', '🐧', '🐼', '🐸', '🐰', '🦁', '🦆', '🐨', '🦝', '🦉', '🐺'];
@@ -873,43 +874,71 @@ export function publicRoomState(room) {
 export { rooms };
 // ===== TEAM MODE =====
 
-const TEAM_COLORS = ['#FF5D5D', '#4D6BFE', '#3DDC97', '#FFC93C'];
-const TEAM_NAMES  = ['Team Red', 'Team Blue', 'Team Green', 'Team Gold'];
+const TEAM_COLORS = ['#FF5D5D', '#4D6BFE']; // Team Red, Team Blue
+const TEAM_NAMES  = ['Team Red', 'Team Blue'];
 
 /**
- * Initialise teams on the room. Called from index.js before buildDrawerOrder.
- * @param {object} room
- * @param {number} teamCount  2|3|4
+ * Initialise exactly two teams on the room. Called from index.js before
+ * buildTeamDrawerOrder, only when teamMode is on (which itself requires
+ * MIN_TEAM_MODE_PLAYERS connected players — enforced in index.js).
+ * Players are split as evenly as possible via round-robin, so neither
+ * team can end up empty as long as there are at least 2 players.
  */
-export function initTeams(room, teamCount = 2) {
-  const n = Math.min(4, Math.max(2, teamCount));
-  room.teams = Array.from({ length: n }, (_, i) => ({
+export function initTeams(room) {
+  room.teams = Array.from({ length: 2 }, (_, i) => ({
     id: `team-${i}`,
     name: TEAM_NAMES[i],
     color: TEAM_COLORS[i],
     playerIds: [],
     score: 0,
   }));
-  // Auto-assign players round-robin by current order
-  const playerIds = [...room.players.keys()];
+  // Auto-assign connected players round-robin by current order.
+  const playerIds = connectedPlayers(room).map((p) => p.id);
   playerIds.forEach((pid, idx) => {
-    room.teams[idx % n].playerIds.push(pid);
+    room.teams[idx % 2].playerIds.push(pid);
   });
 }
 
 /**
  * Override team assignments sent from the client lobby.
- * assignments = [ { teamId: 'team-0', playerIds: [...] }, ... ]
+ * assignments = [ { teamId: 'team-0', playerIds: [...] }, { teamId: 'team-1', playerIds: [...] } ]
+ *
+ * Validated defensively: only known, currently-connected players are kept,
+ * and any connected player missing from the assignment payload (e.g. they
+ * joined after the host last dragged teams around) is appended to whichever
+ * team currently has fewer players, so nobody is silently dropped from play.
  */
 export function applyTeamAssignments(room, assignments) {
   if (!room.teams || !Array.isArray(assignments)) return;
+
   for (const t of room.teams) t.playerIds = [];
+
+  const seen = new Set();
   for (const { teamId, playerIds } of assignments) {
     const team = room.teams.find((t) => t.id === teamId);
-    if (!team) continue;
+    if (!team || !Array.isArray(playerIds)) continue;
     for (const pid of playerIds) {
-      if (room.players.has(pid)) team.playerIds.push(pid);
+      if (room.players.has(pid) && !seen.has(pid)) {
+        team.playerIds.push(pid);
+        seen.add(pid);
+      }
     }
+  }
+
+  // Safety net: any connected player not covered by the assignment payload
+  // (new joiner, stale client state, etc.) goes to the smaller team so both
+  // teams stay populated and nobody becomes an un-drawable ghost.
+  for (const player of connectedPlayers(room)) {
+    if (seen.has(player.id)) continue;
+    const smaller = room.teams[0].playerIds.length <= room.teams[1].playerIds.length ? 0 : 1;
+    room.teams[smaller].playerIds.push(player.id);
+    seen.add(player.id);
+  }
+
+  // If either team still ended up empty (e.g. all assignments pointed at one
+  // team), rebalance from scratch rather than risk a divide-by-zero later.
+  if (room.teams[0].playerIds.length === 0 || room.teams[1].playerIds.length === 0) {
+    initTeams(room);
   }
 }
 
@@ -927,7 +956,13 @@ export function getPlayerTeam(room, playerId) {
  * Must be called AFTER initTeams().
  */
 export function buildTeamDrawerOrder(room) {
-  if (!room.teams) { buildDrawerOrder(room); return; }
+  if (!room.teams || room.teams.some((t) => t.playerIds.length === 0)) {
+    // Either team mode isn't active, or (shouldn't happen, but just in case)
+    // a team ended up empty — fall back to a flat order rather than divide
+    // by zero below.
+    buildDrawerOrder(room);
+    return;
+  }
   // drawerCursor per team: which player in the team draws next
   const cursors = room.teams.map(() => 0);
   const order = [];

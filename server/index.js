@@ -29,6 +29,7 @@ import {
   isStartingNewRound,
   isRoomEmpty,
   markDisconnected,
+  MIN_TEAM_MODE_PLAYERS,
   publicRoomState,
   reconnectPlayer,
   registerGuess,
@@ -494,8 +495,10 @@ io.on('connection', (socket) => {
       const count = connectedPlayers(room).length;
       next.bonusRound = settings.bonusRound && count >= 5;
     }
-    if (typeof settings.teamMode === 'boolean') next.teamMode = settings.teamMode;
-    if (settings.teamCount) next.teamCount = Math.min(4, Math.max(2, Number(settings.teamCount)));
+    if (typeof settings.teamMode === 'boolean') {
+      const count = connectedPlayers(room).length;
+      next.teamMode = settings.teamMode && count >= MIN_TEAM_MODE_PLAYERS;
+    }
 
     // Team assignment overrides from the lobby UI
     if (settings.teamAssignments && next.teamMode) {
@@ -512,13 +515,19 @@ io.on('connection', (socket) => {
     if (!room) return;
     const player = getPlayerBySocket(room, socket.id);
     if (!player?.isHost) return;
-    if (connectedPlayers(room).length < 2) return;
+    const playerCount = connectedPlayers(room).length;
+    if (playerCount < 2) return;
 
     resetForReplay(room);
     room.status = 'lobby';
 
-    if (room.settings.teamMode) {
-      initTeams(room, room.settings.teamCount || 2);
+    // Re-validate here too — a player may have left after team mode was
+    // toggled on, dropping the room below the minimum required for teams.
+    const teamModeActive = room.settings.teamMode && playerCount >= MIN_TEAM_MODE_PLAYERS;
+    room.settings.teamMode = teamModeActive;
+
+    if (teamModeActive) {
+      initTeams(room);
       // Apply any lobby-configured team assignments
       if (room._pendingTeamAssignments) {
         applyTeamAssignments(room, room._pendingTeamAssignments);

@@ -259,39 +259,6 @@
 }
 
 /* ---- Team mode ---- */
-.team-count-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-  padding-top: 10px;
-}
-
-.team-count-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: var(--radius-sm);
-  border: 2px solid var(--line);
-  background: var(--white);
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--ink-soft);
-  cursor: pointer;
-  transition: border-color 0.12s, background 0.12s;
-}
-
-.team-count-btn.active {
-  border-color: var(--coral);
-  background: #fff0ef;
-  color: var(--coral-dark);
-}
-
-.team-count-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
 .team-assigner {
   display: grid;
   grid-template-columns: repeat(var(--cols, 2), 1fr);

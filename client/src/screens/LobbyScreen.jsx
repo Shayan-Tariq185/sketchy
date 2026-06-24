@@ -6,37 +6,33 @@ import PlayerList from '../components/PlayerList';
 
 const WORD_PACKS = ['Classic', 'Pakistani Edition', 'Tech & Internet', 'Sports', 'Geography'];
 const DIFFICULTIES = ['Easy', 'Medium', 'Hard'];
-const TEAM_COLORS = ['#FF5D5D', '#4D6BFE', '#3DDC97', '#FFC93C'];
-const TEAM_NAMES  = ['Team Red', 'Team Blue', 'Team Green', 'Team Gold'];
+const TEAM_COLORS = ['#FF5D5D', '#4D6BFE'];
+const TEAM_NAMES  = ['Team Red', 'Team Blue'];
+const MIN_TEAM_MODE_PLAYERS = 4;
 
-function TeamAssigner({ room, teamCount, isHost, updateSettings }) {
-  // Local team assignments keyed by playerId -> teamIndex
+function TeamAssigner({ room, isHost, updateSettings }) {
+  // Local team assignments keyed by playerId -> teamIndex (0 or 1)
   const players = room.players.filter((p) => p.connected);
-  const teams = Array.from({ length: teamCount }, (_, i) => ({
-    id: `team-${i}`,
-    name: TEAM_NAMES[i],
-    color: TEAM_COLORS[i],
-    playerIds: players.filter((_, pi) => pi % teamCount === i).map((p) => p.id),
-  }));
 
   // Build live assignments from current room.teams if available, else default
+  // to an even round-robin split so the panel never opens with an empty side.
   const [assignments, setAssignments] = useState(() => {
     const map = {};
-    players.forEach((p, i) => { map[p.id] = i % teamCount; });
+    players.forEach((p, i) => { map[p.id] = i % 2; });
     return map;
   });
 
-  const teamGroups = Array.from({ length: teamCount }, (_, ti) =>
-    players.filter((p) => (assignments[p.id] ?? (players.indexOf(p) % teamCount)) === ti)
+  const teamGroups = [0, 1].map((ti) =>
+    players.filter((p) => (assignments[p.id] ?? (players.indexOf(p) % 2)) === ti)
   );
 
   function movePlayer(pid, toTeam) {
     const next = { ...assignments, [pid]: toTeam };
     setAssignments(next);
     // Push to server as teamAssignments
-    const serverAssignments = Array.from({ length: teamCount }, (_, ti) => ({
+    const serverAssignments = [0, 1].map((ti) => ({
       teamId: `team-${ti}`,
-      playerIds: players.filter((p) => (next[p.id] ?? (players.indexOf(p) % teamCount)) === ti).map((p) => p.id),
+      playerIds: players.filter((p) => (next[p.id] ?? (players.indexOf(p) % 2)) === ti).map((p) => p.id),
     }));
     updateSettings({ teamAssignments: serverAssignments });
   }
@@ -55,17 +51,12 @@ function TeamAssigner({ room, teamCount, isHost, updateSettings }) {
                 <span className="team-player-name">{p.name}</span>
                 {isHost && (
                   <div className="team-move-btns">
-                    {Array.from({ length: teamCount }, (_, tIdx) =>
-                      tIdx !== ti ? (
-                        <button
-                          key={tIdx}
-                          className="team-move-btn"
-                          style={{ background: TEAM_COLORS[tIdx] }}
-                          title={`Move to ${TEAM_NAMES[tIdx]}`}
-                          onClick={() => movePlayer(p.id, tIdx)}
-                        >→</button>
-                      ) : null
-                    )}
+                    <button
+                      className="team-move-btn"
+                      style={{ background: TEAM_COLORS[ti === 0 ? 1 : 0] }}
+                      title={`Move to ${TEAM_NAMES[ti === 0 ? 1 : 0]}`}
+                      onClick={() => movePlayer(p.id, ti === 0 ? 1 : 0)}
+                    >→</button>
                   </div>
                 )}
               </div>
@@ -84,8 +75,8 @@ export default function LobbyScreen() {
   const isHost = !!me?.isHost;
   const canStart = room.players.filter((p) => p.connected).length >= 2;
   const canBonus = room.players.filter((p) => p.connected).length >= 5;
-  const teamMode = !!room.settings.teamMode;
-  const teamCount = room.settings.teamCount || 2;
+  const canTeamMode = room.players.filter((p) => p.connected).length >= MIN_TEAM_MODE_PLAYERS;
+  const teamMode = !!room.settings.teamMode && canTeamMode;
 
   return (
     <main className="screen screen-narrow">
@@ -207,32 +198,21 @@ export default function LobbyScreen() {
           </span>
         </label>
 
-        <label className="toggle-row">
+        <label className={`toggle-row ${!canTeamMode ? 'toggle-row--disabled' : ''}`}>
           <input
             type="checkbox"
-            disabled={!isHost}
+            disabled={!isHost || !canTeamMode}
             checked={teamMode}
             onChange={(e) => updateSettings({ teamMode: e.target.checked })}
           />
           <span>
             <Swords size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-            Team vs Team mode — opposing team guesses, same team cheers
+            Team vs Team mode — 2 teams, opposing team guesses, same team cheers
           </span>
         </label>
-
-        {teamMode && (
-          <div className="team-count-row">
-            <span className="label-text">Number of teams:</span>
-            {[2, 3, 4].map((n) => (
-              <button
-                key={n}
-                disabled={!isHost}
-                className={`team-count-btn ${teamCount === n ? 'active' : ''}`}
-                onClick={() => updateSettings({ teamCount: n })}
-              >{n}</button>
-            ))}
-          </div>
-        )}
+        {!canTeamMode ? (
+          <p className="lobby-hint">Need at least {MIN_TEAM_MODE_PLAYERS} players in the room to unlock team mode.</p>
+        ) : null}
 
         <label className={`toggle-row ${!canBonus ? 'toggle-row--disabled' : ''}`}>
           <input
@@ -262,7 +242,6 @@ export default function LobbyScreen() {
           </p>
           <TeamAssigner
             room={room}
-            teamCount={teamCount}
             isHost={isHost}
             updateSettings={updateSettings}
           />
