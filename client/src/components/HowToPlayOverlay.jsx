@@ -47,8 +47,7 @@ export default function HowToPlayOverlay({ onClose }) {
               </h3>
               <p>
                 Type your guess straight into the chat box — close guesses get a private warm/cold style hint
-                without ever revealing the actual word, so keep trying as you narrow it down. Once you guess
-                correctly, you can keep chatting but can't guess again that round.
+                without ever revealing the actual word, so keep trying as you narrow it down.
               </p>
             </section>
 

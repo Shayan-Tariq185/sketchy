@@ -42,13 +42,32 @@ export default function ResultsScreen() {
   const leaderboard = gameResult?.leaderboard || room.players;
   const me = room.players.find((p) => p.id === playerId);
   const sorted = [...leaderboard].sort((a, b) => b.score - a.score);
-  const winner = sorted[0];
+
+  // Competition-style ranking: tied scores share the same rank number, and
+  // the next distinct score continues from how many players are ranked
+  // above it (so two players tied at #1 are followed by #3, not #2).
+  const ranks = [];
+  let lastScore = null;
+  let lastRank = 0;
+  sorted.forEach((p, i) => {
+    if (p.score !== lastScore) {
+      lastRank = i + 1;
+      lastScore = p.score;
+    }
+    ranks.push(lastRank);
+  });
+
+  const topScore = sorted[0]?.score;
+  const topPlayers = sorted.filter((p) => p.score === topScore);
+  const isTie = topPlayers.length > 1;
+  const winner = isTie ? null : sorted[0];
 
   useEffect(() => {
-    if (winner) {
+    if (sorted.length > 0) {
       playVictoryFanfare();
     }
-  }, [winner?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topScore, topPlayers.length]);
 
   // Build a lookup map from leaderboard player id → player object
   const playerById = Object.fromEntries(leaderboard.map((p) => [p.id, p]));
@@ -56,9 +75,9 @@ export default function ResultsScreen() {
 
   return (
     <main className="screen screen-narrow">
-      {winner ? (
+      {sorted.length > 0 ? (
         <SparkleBlast
-          burstKey={`match-${winner.id}`}
+          burstKey={isTie ? `tie-${topPlayers.map((p) => p.id).join('-')}` : `match-${winner.id}`}
           particleCount={80}
           cleanupMs={5200}
           fallDurationMin={2.2}
@@ -69,7 +88,11 @@ export default function ResultsScreen() {
         <Trophy size={40} color="#FFC93C" />
       </div>
       <h1 className="results-headline">
-        {winner ? (
+        {isTie ? (
+          <>
+            It's a <span className="pencil-underline">tie</span>!
+          </>
+        ) : winner ? (
           <>
             <span className="pencil-underline">{winner.name}</span> wins!
           </>
@@ -77,6 +100,11 @@ export default function ResultsScreen() {
           'Game over'
         )}
       </h1>
+      {isTie ? (
+        <p className="home-subline" style={{ marginBottom: 4 }}>
+          {topPlayers.map((p) => p.name).join(' & ')} tied for first with {topScore} points each.
+        </p>
+      ) : null}
       <p className="home-subline" style={{ marginBottom: 22 }}>
         {room.maxRounds} round{room.maxRounds !== 1 ? 's' : ''},{' '}
         {room.players.length} player{room.players.length !== 1 ? 's' : ''},
@@ -88,7 +116,7 @@ export default function ResultsScreen() {
         {sorted.map((p, i) => (
           <div key={p.id} className={`results-row ${p.id === playerId ? 'is-me' : ''}`}>
             <span className="results-rank">
-              {i === 0 ? <Crown size={16} color="#FFC93C" /> : `#${i + 1}`}
+              {ranks[i] === 1 ? <Crown size={16} color="#FFC93C" /> : `#${ranks[i]}`}
             </span>
             <span className="avatar-dot" style={{ background: p.color }}>
               {p.name.slice(0, 1).toUpperCase()}
