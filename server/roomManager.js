@@ -253,6 +253,13 @@ export function isGameComplete(room) {
   return nextRound > room.settings.maxRounds;
 }
 
+export function isStartingNewRound(room) {
+  const playerCount = room.drawerOrder.length || 1;
+  const nextTurnIndex = room.turnIndex + 1;
+  const nextRound = Math.ceil(nextTurnIndex / playerCount);
+  return nextRound > room.round;
+}
+
 export function startRound(room) {
   room.turnIndex += 1;
   const playerCount = room.drawerOrder.length || 1;

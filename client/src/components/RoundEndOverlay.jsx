@@ -81,7 +81,7 @@ function ReplayCanvas({ strokes }) {
 
 export default function RoundEndOverlay({ info, onDone }) {
   if (!info) return null;
-  const { result, word, strokes } = info;
+const { result, word, strokes, isStartingNewRound, isGameEnding, isGoingToBonusRound } = info;
 
   const headline =
     result?.type === 'all-correct'
@@ -123,7 +123,17 @@ export default function RoundEndOverlay({ info, onDone }) {
 
           <ReplayCanvas strokes={strokes} key={JSON.stringify(strokes).length} />
 
-          {result?.type !== 'recap' ? <p className="round-end-note">Next round starting shortly…</p> : (
+          {result?.type !== 'recap' ? (
+            <p className="round-end-note">
+              {isGoingToBonusRound
+                ? 'Bonus round starting shortly…'
+                : isGameEnding
+                ? 'Tallying final scores…'
+                : isStartingNewRound
+                ? 'Next round starting shortly…'
+                : "Next player's turn starting shortly…"}
+            </p>
+          ) : (
             <button className="btn btn-sm btn-ghost" style={{ marginTop: 14 }} onClick={onDone}>
               Close
             </button>

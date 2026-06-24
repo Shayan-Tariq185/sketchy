@@ -121,18 +121,24 @@
 
 .toggle-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   font-size: 14px;
   color: var(--ink-soft);
-  padding-top: 6px;
+  padding: 8px 0 6px;
   border-top: 1.5px dashed var(--line);
+  line-height: 1.4;
 }
 
-.toggle-row input {
+.toggle-row input[type='checkbox'] {
   width: 18px;
   height: 18px;
+  min-width: 18px;
+  min-height: 18px;
   accent-color: var(--coral);
+  margin-top: 2px;
+  flex-shrink: 0;
+  cursor: pointer;
 }
 
 .toggle-row--disabled {

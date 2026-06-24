@@ -1,3 +1,8 @@
+/**
+ * sounds.js — All game audio, synthesised via Web Audio API.
+ * Uses proper ADSR envelopes and gentle waveforms to avoid distortion.
+ */
+
 let audioCtx = null;
 
 function getCtx() {
@@ -12,12 +17,24 @@ function getCtx() {
 
 export function unlockAudio() {
   const ctx = getCtx();
-  if (ctx?.state === 'suspended') {
-    ctx.resume().catch(() => {});
-  }
+  if (ctx?.state === 'suspended') ctx.resume().catch(() => {});
 }
 
-function tone({ frequency, duration = 0.12, volume = 0.07, type = 'sine', when = 0 }) {
+/**
+ * Low-level tone builder with proper ADSR envelope.
+ * attack/decay/sustain/release in seconds, sustainLevel 0-1.
+ */
+function tone({
+  frequency,
+  type = 'sine',
+  volume = 0.12,
+  attack = 0.01,
+  decay = 0.08,
+  sustainLevel = 0.6,
+  release = 0.15,
+  when = 0,
+  filterFreq = null,
+}) {
   const ctx = getCtx();
   if (!ctx) return;
 
@@ -27,32 +44,94 @@ function tone({ frequency, duration = 0.12, volume = 0.07, type = 'sine', when =
 
   osc.type = type;
   osc.frequency.setValueAtTime(frequency, start);
-  gain.gain.setValueAtTime(volume, start);
-  gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
+
+  // ADSR
+  gain.gain.setValueAtTime(0, start);
+  gain.gain.linearRampToValueAtTime(volume, start + attack);
+  gain.gain.linearRampToValueAtTime(volume * sustainLevel, start + attack + decay);
+  gain.gain.setValueAtTime(volume * sustainLevel, start + attack + decay);
+  gain.gain.linearRampToValueAtTime(0, start + attack + decay + release);
+
+  let node = gain;
+
+  // Optional low-pass to soften harsh waveforms
+  if (filterFreq) {
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(filterFreq, start);
+    gain.connect(filter);
+    filter.connect(ctx.destination);
+    node = null; // already connected
+  }
 
   osc.connect(gain);
-  gain.connect(ctx.destination);
+  if (node) gain.connect(ctx.destination);
+
+  const totalDuration = attack + decay + release + 0.05;
   osc.start(start);
-  osc.stop(start + duration + 0.02);
+  osc.stop(start + totalDuration);
 }
 
-/** Short tick during the final seconds of a round. */
+/**
+ * Soft metronome tick for the final 10 seconds.
+ * urgent = last 5 seconds → slightly higher pitch.
+ */
 export function playTimerTick(urgent = false) {
   unlockAudio();
   tone({
-    frequency: urgent ? 920 : 740,
-    duration: urgent ? 0.1 : 0.08,
-    volume: urgent ? 0.09 : 0.06,
-    type: urgent ? 'square' : 'sine'
+    frequency: urgent ? 660 : 520,
+    type: 'sine',
+    volume: urgent ? 0.13 : 0.09,
+    attack: 0.005,
+    decay: 0.04,
+    sustainLevel: 0.2,
+    release: 0.08,
+    filterFreq: 2200,
   });
 }
 
-/** Cheerful fanfare when the match ends with a winner. */
+/**
+ * Cheerful ascending fanfare when the game ends.
+ * Four notes in a major arpeggio, soft triangle wave.
+ */
 export function playVictoryFanfare() {
   unlockAudio();
-  const notes = [523.25, 659.25, 783.99, 1046.5];
-  notes.forEach((freq, i) => {
-    tone({ frequency: freq, duration: 0.22, volume: 0.08, type: 'triangle', when: i * 0.12 });
+  const melody = [
+    { freq: 523.25, when: 0 },      // C5
+    { freq: 659.25, when: 0.14 },   // E5
+    { freq: 783.99, when: 0.28 },   // G5
+    { freq: 1046.5, when: 0.42 },   // C6
+    { freq: 1318.5, when: 0.60 },   // E6 (high finish)
+  ];
+  melody.forEach(({ freq, when }) => {
+    tone({
+      frequency: freq,
+      type: 'triangle',
+      volume: 0.10,
+      attack: 0.02,
+      decay: 0.1,
+      sustainLevel: 0.7,
+      release: 0.25,
+      when,
+      filterFreq: 4000,
+    });
   });
-  tone({ frequency: 1318.5, duration: 0.35, volume: 0.06, type: 'sine', when: 0.5 });
+}
+
+/**
+ * Short pleasant chime when a player guesses correctly.
+ */
+export function playCorrectGuess() {
+  unlockAudio();
+  tone({ frequency: 880,  type: 'sine', volume: 0.10, attack: 0.01, decay: 0.06, sustainLevel: 0.5, release: 0.18, when: 0 });
+  tone({ frequency: 1108, type: 'sine', volume: 0.07, attack: 0.02, decay: 0.06, sustainLevel: 0.4, release: 0.18, when: 0.07 });
+}
+
+/**
+ * Gentle thud when a new drawing turn starts.
+ */
+export function playRoundStart() {
+  unlockAudio();
+  tone({ frequency: 330, type: 'triangle', volume: 0.09, attack: 0.01, decay: 0.12, sustainLevel: 0.3, release: 0.12, when: 0 });
+  tone({ frequency: 440, type: 'triangle', volume: 0.07, attack: 0.02, decay: 0.10, sustainLevel: 0.3, release: 0.12, when: 0.1 });
 }

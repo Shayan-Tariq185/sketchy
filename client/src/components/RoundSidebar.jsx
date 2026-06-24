@@ -2,6 +2,43 @@ import { Eye, Lightbulb, Timer } from 'lucide-react';
 import { useGame } from '../context/GameContext';
 import PlayerList from './PlayerList';
 
+/** Renders the masked word for guessers (blank letters show only an underline,
+ * revealed letters show in colour). The drawer sees the real word as plain
+ * text instead -- it must never be passed through the letter-box renderer,
+ * since that renderer assumes single-character "_" tokens, and a real word
+ * like "Bunsen burner" would get crammed whole words into single-letter-sized
+ * boxes. */
+function MaskedWordDisplay({ masked, isDrawer, secretWord }) {
+  if (isDrawer) {
+    if (!secretWord) return <span className="word-display-blanks">…</span>;
+    return <div className="word-display-plain">{secretWord}</div>;
+  }
+
+  if (!masked) return <span className="word-display-blanks">…</span>;
+
+  // Server sends "_ _ _   _ _ _ _"
+  // triple-space = word boundary, single-space = letter separator
+  const wordChunks = masked.split('   ');
+  return (
+    <div className="word-display-line">
+      {wordChunks.map((chunk, wi) => (
+        <span key={wi} className="word-display-chunk">
+          {chunk.split(' ').map((letter, li) => {
+            const isBlank = letter === '_';
+            return (
+              <span key={li} className={`word-letter${isBlank ? '' : ' revealed'}`}>
+                {/* blank = empty string, border-bottom is the underline */}
+                {isBlank ? '' : letter}
+              </span>
+            );
+          })}
+          {wi < wordChunks.length - 1 && <span className="word-gap" />}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default function RoundSidebar({ isDrawer }) {
   const { room, secretWord } = useGame();
   const drawer = room.players.find((p) => p.id === room.drawerId);
@@ -9,7 +46,6 @@ export default function RoundSidebar({ isDrawer }) {
   const urgent = room.timeLeft <= 10;
   const timeDisplay = Math.ceil(room.timeLeft);
 
-  // Hint: how many seconds until the hint fires (50% of drawTime)
   const halfTime = room.drawTime ? room.drawTime * 0.5 : 40;
   const timeUntilHint = room.timeLeft > halfTime ? Math.ceil(room.timeLeft - halfTime) : 0;
 
@@ -23,24 +59,12 @@ export default function RoundSidebar({ isDrawer }) {
         <div className="sidebar-drawer-row">
           <span className="sidebar-drawer-animal">{drawer?.animal || '🎨'}</span>
           <h3 className="sidebar-drawer-name">
-            {drawer?.name || '...'}{' '}
+            {drawer?.name || '...'}
             <span className="sidebar-drawer-action">
               {room.status === 'drawing' ? 'is drawing' : room.status === 'choosing' ? 'is thinking…' : ''}
             </span>
           </h3>
         </div>
-      </div>
-
-      {/* Word display */}
-      <div className="paper-card sidebar-block">
-        <div className="word-display-row">
-          <span className="eyebrow">{isDrawer ? 'Your word' : 'Guess the word'}</span>
-          {isDrawer ? <Eye size={13} /> : null}
-        </div>
-        <p className="word-display">
-          {isDrawer ? secretWord || room.maskedWord : room.maskedWord}
-        </p>
-        <span className="word-length-hint">{room.wordLength} letters</span>
       </div>
 
       {/* Timer */}
@@ -54,7 +78,7 @@ export default function RoundSidebar({ isDrawer }) {
         </div>
       </div>
 
-      {/* Hint status — guessers during drawing */}
+      {/* Hint status */}
       {!isDrawer && room.status === 'drawing' ? (
         <div className={`paper-card sidebar-block hint-block ${room.hintGiven ? 'hint-active' : ''}`}>
           <div className="hint-row">

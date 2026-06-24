@@ -26,6 +26,7 @@ import {
   initTeams,
   isAtCapacity,
   isGameComplete,
+  isStartingNewRound,
   isRoomEmpty,
   markDisconnected,
   publicRoomState,
@@ -316,12 +317,16 @@ function finishRound(code, resultPayload) {
   room.guesses = room.guesses.slice(-50);
   io.to(code).emit('chat:message', systemMsg);
 
+const gameEnding = isGameComplete(room);
   io.to(code).emit('round:end', {
     result: resultPayload,
     word: room.currentWord,
     drawerId: currentDrawerId(room),
     leaderboard: publicRoomState(room).players,
-    strokes: room.strokes
+    strokes: room.strokes,
+    isStartingNewRound: isStartingNewRound(room),
+    isGameEnding: gameEnding,
+    isGoingToBonusRound: gameEnding && canRunBonusRound(room)
   });
   emitRoomState(code);
 

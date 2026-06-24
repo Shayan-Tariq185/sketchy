@@ -207,22 +207,6 @@ export default function LobbyScreen() {
           </span>
         </label>
 
-        <label className={`toggle-row ${!canBonus ? 'toggle-row--disabled' : ''}`}>
-          <input
-            type="checkbox"
-            disabled={!isHost || !canBonus}
-            checked={!!room.settings.bonusRound && canBonus}
-            onChange={(e) => updateSettings({ bonusRound: e.target.checked })}
-          />
-          <span>
-            <Gift size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-            Bonus round after the match (5+ players — everyone draws, then guess who drew what)
-          </span>
-        </label>
-        {!canBonus ? (
-          <p className="lobby-hint">Need at least 5 players in the room to unlock the bonus round.</p>
-        ) : null}
-
         <label className="toggle-row">
           <input
             type="checkbox"
@@ -249,6 +233,22 @@ export default function LobbyScreen() {
             ))}
           </div>
         )}
+
+        <label className={`toggle-row ${!canBonus ? 'toggle-row--disabled' : ''}`}>
+          <input
+            type="checkbox"
+            disabled={!isHost || !canBonus}
+            checked={!!room.settings.bonusRound && canBonus}
+            onChange={(e) => updateSettings({ bonusRound: e.target.checked })}
+          />
+          <span>
+            <Gift size={13} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+            Bonus round after the match (5+ players — everyone draws, then guess who drew what)
+          </span>
+        </label>
+        {!canBonus ? (
+          <p className="lobby-hint">Need at least 5 players in the room to unlock the bonus round.</p>
+        ) : null}
       </section>
 
       {teamMode && (

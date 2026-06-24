@@ -111,12 +111,42 @@ function BonusGuessingPhase({ room, timeLeft, playerId, onSubmit }) {
   const [assignments, setAssignments] = useState({});
   const [busy, setBusy] = useState(false);
 
-  const allFilled = drawings.every((d) => assignments[d.anonId]);
+  // Drawings where isOwn === true are shown but can't be voted on
+  const votableDrawings = drawings.filter((d) => !d.isOwn);
+  const ownDrawing = drawings.find((d) => d.isOwn);
+
+  // Rule: each player name can only be assigned once across all votable drawings
+  const usedPlayerIds = new Set(Object.values(assignments).filter(Boolean));
+
+  const allFilled = votableDrawings.every((d) => assignments[d.anonId]);
+
+  const handleAssign = (anonId, newPlayerId) => {
+    setAssignments((prev) => {
+      const next = { ...prev };
+      // Clear any other drawing that had this player assigned
+      for (const [aid, pid] of Object.entries(next)) {
+        if (pid === newPlayerId && aid !== anonId) delete next[aid];
+      }
+      if (newPlayerId) next[anonId] = newPlayerId;
+      else delete next[anonId];
+      return next;
+    });
+  };
 
   const handleSubmit = () => {
     if (!allFilled || busy) return;
     setBusy(true);
     onSubmit(assignments);
+  };
+
+  // Per drawing: eligible players = not yourself, not already assigned elsewhere
+  const eligibleFor = (anonId) => {
+    const currentForThis = assignments[anonId];
+    return room.players.filter((p) => {
+      if (p.id === playerId) return false;
+      if (usedPlayerIds.has(p.id) && p.id !== currentForThis) return false;
+      return true;
+    });
   };
 
   return (
@@ -126,29 +156,43 @@ function BonusGuessingPhase({ room, timeLeft, playerId, onSubmit }) {
       <p className="bonus-subline">
         <strong>{timeLeft}s</strong> left · {room.bonusGuessesSubmittedCount || 0}/{room.bonusTotalPlayers} voted
       </p>
+      <p className="bonus-rules-note">
+        💡 Each player can only be assigned once. You can see your own drawing but can't vote on it.
+      </p>
+
+      {/* Own drawing shown at top, greyed out */}
+      {ownDrawing && (
+        <div className="bonus-own-drawing">
+          <span className="bonus-drawing-label">Your drawing ✏️</span>
+          <MiniReplay strokes={ownDrawing.strokes} />
+        </div>
+      )}
 
       <div className="bonus-guess-grid">
-        {drawings.map((d) => (
+        {votableDrawings.map((d) => (
           <div key={d.anonId} className="bonus-guess-card paper-card">
             <span className="bonus-drawing-label">Drawing {d.label}</span>
             <MiniReplay strokes={d.strokes} />
             <select
               className="input-field"
               value={assignments[d.anonId] || ''}
-              onChange={(e) => setAssignments((prev) => ({ ...prev, [d.anonId]: e.target.value }))}
+              onChange={(e) => handleAssign(d.anonId, e.target.value)}
             >
               <option value="">Who drew this?</option>
-              {room.players.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}{p.id === playerId ? ' (you)' : ''}
-                </option>
+              {eligibleFor(d.anonId).map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
           </div>
         ))}
       </div>
 
-      <button className="btn btn-primary btn-block" type="button" disabled={!allFilled || busy} onClick={handleSubmit}>
+      <button
+        className="btn btn-primary btn-block"
+        type="button"
+        disabled={!allFilled || busy}
+        onClick={handleSubmit}
+      >
         <Users size={16} /> Lock in my guesses
       </button>
     </div>

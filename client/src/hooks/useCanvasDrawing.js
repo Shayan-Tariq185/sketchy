@@ -4,20 +4,25 @@ import { socket } from '../socket';
 const CANVAS_W = 1280;
 const CANVAS_H = 800;
 
-// Renders one stroke object {points, color, size} onto a canvas context.
+// Renders one stroke object {points, color, size, isEraser} onto a canvas
+// context. Eraser strokes use destination-out compositing so they reveal
+// the paper texture underneath instead of painting an opaque white smudge
+// over it.
 function paintStroke(ctx, stroke) {
   if (!stroke?.points?.length) return;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = stroke.color;
+  ctx.globalCompositeOperation = stroke.isEraser ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = stroke.isEraser ? 'rgba(0,0,0,1)' : stroke.color;
   ctx.lineWidth = stroke.size;
 
   if (stroke.points.length === 1) {
     const [p] = stroke.points;
     ctx.beginPath();
     ctx.arc(p.x, p.y, stroke.size / 2, 0, Math.PI * 2);
-    ctx.fillStyle = stroke.color;
+    ctx.fillStyle = stroke.isEraser ? 'rgba(0,0,0,1)' : stroke.color;
     ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
     return;
   }
 
@@ -27,6 +32,7 @@ function paintStroke(ctx, stroke) {
     ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
   }
   ctx.stroke();
+  ctx.globalCompositeOperation = 'source-over';
 }
 
 export function useCanvasDrawing({ roomCode, canDraw }) {
@@ -43,8 +49,9 @@ export function useCanvasDrawing({ roomCode, canDraw }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // No solid fill here -- leaving the canvas transparent lets the paper
+    // texture on .canvas-wrap show through behind the strokes.
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     for (const stroke of allStrokesRef.current) paintStroke(ctx, stroke);
   }, []);
 
@@ -52,8 +59,7 @@ export function useCanvasDrawing({ roomCode, canDraw }) {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
   }, []);
 
   useEffect(() => {
@@ -111,10 +117,11 @@ export function useCanvasDrawing({ roomCode, canDraw }) {
       strokeId,
       points: [point],
       color: strokeColor,
-      size: strokeSize
+      size: strokeSize,
+      isEraser
     };
 
-    const dotSegment = { strokeId, points: [point], color: strokeColor, size: strokeSize };
+    const dotSegment = { strokeId, points: [point], color: strokeColor, size: strokeSize, isEraser };
     allStrokesRef.current.push(dotSegment);
 
     const ctx = canvasRef.current?.getContext('2d');
@@ -138,7 +145,8 @@ export function useCanvasDrawing({ roomCode, canDraw }) {
         strokeId: stroke.strokeId,
         points: pts.slice(-2),
         color: stroke.color,
-        size: stroke.size
+        size: stroke.size,
+        isEraser: stroke.isEraser
       };
       paintStroke(ctx, segment);
 
