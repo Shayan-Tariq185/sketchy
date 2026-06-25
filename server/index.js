@@ -77,6 +77,11 @@ const MAX_PLAYERS = 12;
 const ROUND_END_PAUSE_MS = 4200;
 const BONUS_RESULTS_PAUSE_MS = 6000;
 const EMPTY_ROOM_GRACE_MS = 5 * 60 * 1000;
+// How long after a round ends we still accept strokes that were already in
+// flight when it ended, and how long we wait before snapshotting strokes
+// for the round-end replay. 300ms comfortably covers normal network latency
+// for same-room players without being noticeable as a delay.
+const STROKE_GRACE_MS = 300;
 
 function emitRoomState(code) {
   const room = getRoom(code);
@@ -312,19 +317,37 @@ function finishRound(code, resultPayload) {
   room.guesses.push(systemMsg);
   room.guesses = room.guesses.slice(-50);
   io.to(code).emit('chat:message', systemMsg);
-
-const gameEnding = isGameComplete(room);
-  io.to(code).emit('round:end', {
-    result: resultPayload,
-    word: room.currentWord,
-    drawerId: currentDrawerId(room),
-    leaderboard: publicRoomState(room).players,
-    strokes: room.strokes,
-    isStartingNewRound: isStartingNewRound(room),
-    isGameEnding: gameEnding,
-    isGoingToBonusRound: gameEnding && canRunBonusRound(room)
-  });
   emitRoomState(code);
+
+  // A correct guess ends the round the instant it's processed, with no
+  // delay — but the drawer's last stroke (often a final dot or finishing
+  // touch) can still be in flight over the network at that exact moment.
+  // Without a small buffer here, room.strokes gets read before that last
+  // packet lands, and the replay silently ends up missing it. The strokes
+  // themselves are accepted up to STROKE_GRACE_MS late (see the widened
+  // canvas:stroke guard), so waiting that long before reading room.strokes
+  // lets them actually land before we snapshot for the replay.
+  setTimeout(() => {
+    const stillRoom = getRoom(code);
+    if (!stillRoom) return;
+    const gameEnding = isGameComplete(stillRoom);
+
+    // The recap entry endRound() already pushed used the strokes available
+    // at that instant; refresh it now that any late strokes have arrived.
+    const lastRecap = stillRoom.roundRecaps[stillRoom.roundRecaps.length - 1];
+    if (lastRecap) lastRecap.strokes = stillRoom.strokes;
+
+    io.to(code).emit('round:end', {
+      result: resultPayload,
+      word: stillRoom.currentWord,
+      drawerId: currentDrawerId(stillRoom),
+      leaderboard: publicRoomState(stillRoom).players,
+      strokes: stillRoom.strokes,
+      isStartingNewRound: isStartingNewRound(stillRoom),
+      isGameEnding: gameEnding,
+      isGoingToBonusRound: gameEnding && canRunBonusRound(stillRoom)
+    });
+  }, STROKE_GRACE_MS);
 
   setTimeout(() => {
     const stillRoom = getRoom(code);
@@ -576,7 +599,20 @@ io.on('connection', (socket) => {
 
   socket.on('canvas:stroke', ({ code, stroke }) => {
     const room = getRoom(code);
-    if (!room || room.status !== 'drawing') return;
+    if (!room) return;
+    // Accept strokes while drawing, AND for a brief grace window right after
+    // the round ends — a stroke can already be in flight over the network
+    // the instant someone's correct guess ends the round, and without this
+    // it gets silently dropped, leaving the replay missing the drawer's last
+    // mark (most often a final dot or finishing touch). Bounded to
+    // STROKE_GRACE_MS so a stray late packet can't sneak in well after the
+    // round has moved on. currentDrawerId is still valid right after
+    // 'round-end' since drawerIndex only advances on the next turn.
+    const inGraceWindow =
+      room.status === 'round-end' &&
+      room.roundEndedAt &&
+      Date.now() - room.roundEndedAt <= STROKE_GRACE_MS;
+    if (room.status !== 'drawing' && !inGraceWindow) return;
     const player = getPlayerBySocket(room, socket.id);
     const drawerId = currentDrawerId(room);
     if (!player || player.id !== drawerId) return;

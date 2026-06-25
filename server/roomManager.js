@@ -792,6 +792,7 @@ export function allNonDrawersGuessedCorrectly(room, drawerId) {
 export function endRound(room, reason) {
   const drawerId = currentDrawerId(room);
   room.status = 'round-end';
+  room.roundEndedAt = Date.now();
   room.roundRecaps.push({
     round: room.round,
     word: room.currentWord,
