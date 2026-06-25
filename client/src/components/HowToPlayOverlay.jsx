@@ -20,7 +20,7 @@ export default function HowToPlayOverlay({ onClose }) {
                 <Users size={15} /> Getting started
               </h3>
               <p>
-                Create a private room or join one with a friend's code — there's no public matchmaking, so it's
+                Create a private room or join one with a friend's code - there's no public matchmaking, so it's
                 always just the people you invite. Once everyone's in the lobby, the host picks the word pack,
                 difficulty, draw time, and number of rounds, then hits start.
               </p>
@@ -46,7 +46,7 @@ export default function HowToPlayOverlay({ onClose }) {
                 <MessageCircle size={15} /> Guessing tips
               </h3>
               <p>
-                Type your guess straight into the chat box — close guesses get a private warm/cold style hint
+                Type your guess straight into the chat box - close guesses get a private warm/cold style hint
                 without ever revealing the actual word, so keep trying as you narrow it down.
               </p>
             </section>
@@ -62,7 +62,7 @@ export default function HowToPlayOverlay({ onClose }) {
                 <strong>+50</strong> on top of that.
               </p>
               <p>
-                The drawer isn't left out — every time someone guesses their word correctly, the drawer earns
+                The drawer isn't left out - every time someone guesses their word correctly, the drawer earns
                 half of whatever that guesser just scored. A good drawing that gets guessed fast by multiple
                 people adds up fast for the artist too.
               </p>
