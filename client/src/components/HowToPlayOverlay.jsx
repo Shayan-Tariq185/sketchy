@@ -109,7 +109,7 @@ export default function HowToPlayOverlay({ onClose }) {
           </div>
 
           <button className="btn btn-primary btn-block" onClick={onClose}>
-            Got it — let's play
+            Got it - let's play
           </button>
         </div>
       </div>

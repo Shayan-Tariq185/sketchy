@@ -422,7 +422,7 @@ export function assignBadges(room) {
     categoryWinners.push({
       playerId: candidates[0].id,
       badge: 'The Minimalist',
-      description: `Only ${min} stroke${min === 1 ? '' : 's'} — efficiency is an art form.`,
+      description: 'Barely lifted the pen all game — efficiency is an art form.',
       priority: runnerUp !== null ? (runnerUp - min) / (runnerUp || 1) : 1,
     });
   }
@@ -593,7 +593,7 @@ export function buildRoastRecap(room) {
       title: 'One-Line Wonder',
       playerId: p.id,
       playerName: p.name,
-      line: `${p.name} drew a masterpiece in only ${minStrokes} stroke${minStrokes === 1 ? '' : 's'}.`
+      line: `${p.name} drew a masterpiece with barely any pen movement.`
     });
   }
 
