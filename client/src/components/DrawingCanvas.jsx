@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { Eraser, Paintbrush, RotateCcw, Trash2 } from 'lucide-react';
 
 const PALETTE = [
-  '#1a1a2e', '#ffffff', '#ff5d5d', '#ffc93c', '#3ddc97',
+  '#1a1a2e', '#ffffff', '#ff5d5d', '#ffc93c', '#2ecc71',
   '#4d6bfe', '#b26bff', '#ff8fb1', '#33c9c9', '#ff9f4d'
 ];
 
