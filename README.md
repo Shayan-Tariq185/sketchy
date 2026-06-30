@@ -108,8 +108,3 @@ Once both are deployed, share your frontend URL with friends — they don't need
 - **Backend:** Node.js, Express, Socket.IO, nanoid
 - **Realtime sync:** WebSocket-based stroke streaming, server-authoritative scoring and round timers
 
----
-
-## License
-
-This project is yours to use, modify, and ship however you like.
